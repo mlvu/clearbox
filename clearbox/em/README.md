@@ -1,0 +1,1 @@
+Implementation of the Expectation-Maximization algorithm for Gaussian mixture models. 
