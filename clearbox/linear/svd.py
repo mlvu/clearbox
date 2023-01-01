@@ -16,8 +16,6 @@ def orthogonal(a : nt.ArrayLike, num='full', maxit=float('inf'), eps=1e-8):
     Computes the first n singular vectors and the corresponding singular values of the matrix `a` using the
     orthogonal iteration algorithm.
 
-    TODO: Quantify behavior for non-square matrices.
-
     References:
      - https://peterbloem.nl/blog/pca-5
 
@@ -26,8 +24,7 @@ def orthogonal(a : nt.ArrayLike, num='full', maxit=float('inf'), eps=1e-8):
     magnitude are returned.
     :param maxit: Max number of iterations. Default `inf` (i.e. no maximum).
     :param eps: Epsilon for the stop condition. If the norm of the candidate eigenvectors changes less than this between
-    iterations, the algorithm considers the itertion to be converged and returns.
-    :param check_sym: Asserts that the matrix is symmetric (up to small differences).
+    iterations, the algorithm considers the iteration to be converged and returns.
     :return: A triple (values, left vectors, right vector) of computed singular values and their left and right vectors
     """
 
@@ -56,60 +53,73 @@ def orthogonal(a : nt.ArrayLike, num='full', maxit=float('inf'), eps=1e-8):
         # -- Stop condition: q should be equal to x normalized to unit vectors.
         if (diff := la.norm(p - p0)) < eps:
             return np.diag(r), q, p
-            # -- `q` contains unit eigenvectors, so the eigenvalues are the norms of the vectors after multiplication
-            #     by `a`.
 
         i += 1
 
-    warnings.warn(f'Algorithm did not converge (last diff={diff}). Returning best guess for eigenpairs.')
+    warnings.warn(f'Algorithm did not converge (last diff={diff}). Returning best guess for singular triples.')
 
     return np.diag(r), q, p
 
+def diag(diag, n, m):
+    """
+    Returns a matrix of arbitrary size with the given elements alon the diagonal.
+    :param n:
+    :param m:
+    :param diag:
+    :return:
+    """
+    out = np.zeros((n, m))
+    diag = np.diag(diag)
+
+    nd, md = diag.shape; assert nd == md
+
+    out[:nd, :md] = diag
+
+    return out
 
 def qr(a : nt.ArrayLike, maxit=float('inf'), eps=1e-8, check_sym=True):
     """
-    Computes the first n eigenvectors and the corresponding eigenvalues of the square, symmetric matrix `a` using the QR
-    iteration algorithm.
-
-    TODO: Quantify behavior for non-square matrices.
+    Computes the  singular value decomposition for a matrix `a` by the QR aliteration algorithm.
 
     References:
      - https://peterbloem.nl/blog/pca-5
 
-    :param a: A square matrix.
+    :param a: A matrix.
     :param maxit: Max number of iterations. Default `inf` (i.e. no maximum).
     :param eps: Epsilon for the stop condition. If the norm of the candidate eigenvectors changes less than this between
     iterations, the algorithm considers the itertion to be converged and returns.
-    :param check_sym: Asserts that the matrix is symmetric (up to small differences).
-    :return: A pair (values, vectors) of computed eigenvectors and their eigenvalues.
+    :return: A triple (values, left vectors, right vector) of computed singular values and their left and right vectors
     """
 
-    assert len(a.shape) == 2 and a.shape[0] == a.shape[1], f'Input a should be a square matrix. Size was {a.shape}.'
+    assert len(a.shape) == 2, f'Input a should be a matrix. Size was {a.shape}.'
 
-    if check_sym:
-        assert np.allclose(a, a.T, rtol=1e-5, atol=1e-8)
+    n, m = a.shape
 
-    x = a
+    x, y = a, a.T
     i = 0
+
+    qprod, pprod = np.eye(n, n), np.eye(m, m)
 
     while i < maxit:
         x0 = x
+        y0 = y
 
-        q, r = la.qr(x)
-        x = r @ q
+        q, r = la.qr(x, mode='complete')
+        p, b = la.qr(y, mode='complete')
 
-        # xnorm = x / la.norm(x, axis=0, keepdims=True)
+        x = r @ p
+        y = b @ q
+
+        qprod = qprod @ q
+        pprod = pprod @ p
+
         # -- Stop condition: q should be equal to x normalized to unit vectors.
-        if (diff := la.norm(x0 - x)) < eps:
+        if (diff := la.norm(x0 - x) + la.norm(y0 - y)) < eps:
             print(i)
-            return np.diag(x), q
-            # -- `q` contains unit eigenvectors, so the eigenvalues are the norms of the vectors after multiplication
-            #     by `a`.
-
-        # print(x)
+            return np.diag(qprod.T @ a @ pprod), qprod, pprod
 
         i += 1
 
-    warnings.warn(f'Algorithm did not converge (last diff={diff:.04}). Returning best guess for eigenpairs.')
+    warnings.warn(f'Algorithm did not converge (last diff={diff:.04}). Returning best guess for singular triples.')
 
-    return np.diag(x), q
+    return np.diag(qprod.T @ a @ pprod), qprod, pprod

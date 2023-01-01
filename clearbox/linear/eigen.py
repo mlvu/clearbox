@@ -15,7 +15,7 @@ def orthogonal(a : nt.ArrayLike, num='full', maxit=float('inf'), eps=1e-8, check
     Computes the first n eigenvectors and the corresponding eigenvalues of the square, symmetric matrix `a` using the
     orthogonal iteration algorithm.
 
-    TODO: Quantify behavior for non-square matrices.
+    TODO: Quantify behavior for non-symmetric matrices.
 
     References:
      - https://peterbloem.nl/blog/pca-5
@@ -69,7 +69,7 @@ def qr(a : nt.ArrayLike, maxit=float('inf'), eps=1e-8, check_sym=True):
     Computes the first n eigenvectors and the corresponding eigenvalues of the square, symmetric matrix `a` using the QR
     iteration algorithm.
 
-    TODO: Quantify behavior for non-square matrices.
+    TODO: Quantify behavior for non-symmetric matrices.
 
     References:
      - https://peterbloem.nl/blog/pca-5
@@ -90,17 +90,20 @@ def qr(a : nt.ArrayLike, maxit=float('inf'), eps=1e-8, check_sym=True):
     x = a
     i = 0
 
+    qprod = np.eye(a.shape[0])
+
     while i < maxit:
         x0 = x
 
         q, r = la.qr(x)
         x = r @ q
 
+        qprod = qprod @ q
+
         # xnorm = x / la.norm(x, axis=0, keepdims=True)
         # -- Stop condition: q should be equal to x normalized to unit vectors.
         if (diff := la.norm(x0 - x)) < eps:
-            print(i)
-            return np.diag(x), q
+            return np.diag(x), qprod
             # -- `q` contains unit eigenvectors, so the eigenvalues are the norms of the vectors after multiplication
             #     by `a`.
 
@@ -110,4 +113,4 @@ def qr(a : nt.ArrayLike, maxit=float('inf'), eps=1e-8, check_sym=True):
 
     warnings.warn(f'Algorithm did not converge (last diff={diff:.04}). Returning best guess for eigenpairs.')
 
-    return np.diag(x), q
+    return np.diag(x), qprod

@@ -26,14 +26,21 @@ class TestEigen(unittest.TestCase):
 
         assert_allclose(cbval, npval[::-1])
 
+        rec = cbvect @ np.diag(cbval) @ cbvect.T
+        assert_allclose(rec, s, rtol=1e-5, atol=1e-5)
+
         # Almost symmetric matrix
         m = np.random.standard_normal((100, 10))
         s = m.T @ m + np.random.standard_normal((10, 10)) * 1e-10
+
 
         cbval, cbvect = orth_eigen(s, maxit=10_000)
         npval, npvect = np.linalg.eigh(s)
 
         assert_allclose(cbval, npval[::-1])
+
+        rec = cbvect @ np.diag(cbval) @ cbvect.T
+        assert_allclose(rec, s, rtol=1e-5, atol=1e-5)
 
         # Non-symmetric matrix (almost certainly invertible)
         # m = np.random.standard_normal((10, 10))
@@ -63,6 +70,9 @@ class TestEigen(unittest.TestCase):
 
         assert_allclose(cbval, npval[::-1])
 
+        rec = cbvect @ np.diag(cbval) @ cbvect.T
+        assert_allclose(rec, s, rtol=1e-5, atol=1e-5)
+
         # Almost symmetric matrix
         m = np.random.standard_normal((100, 10))
         s = m.T @ m + np.random.standard_normal((10, 10)) * 1e-10
@@ -71,6 +81,9 @@ class TestEigen(unittest.TestCase):
         npval, npvect = np.linalg.eigh(s)
 
         assert_allclose(cbval, npval[::-1])
+
+        rec = cbvect @ np.diag(cbval) @ cbvect.T
+        assert_allclose(rec, s, rtol=1e-5, atol=1e-5)
 
         # Non-symmetric matrix (almost certainly invertible)
         # m = np.random.standard_normal((10, 10))
