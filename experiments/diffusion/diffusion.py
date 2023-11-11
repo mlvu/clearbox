@@ -18,7 +18,7 @@ from clearbox.tools import here, d, fc
 
 from pathlib import Path
 
-import tqdm
+import tqdm, wandb
 
 """ 
 Implementations of the basic idea behind diffusion. 
@@ -127,6 +127,19 @@ def data(name, data_dir, batch_size):
 
         return dataloader, (h, w)
 
+    if name == 'mnist-128':
+        h, w = 128, 128
+        # Load MNIST and scale up to 32x32, with color channels
+        transform = transforms.Compose(
+            [torchvision.transforms.Grayscale(num_output_channels=3),
+             transforms.Resize((h, w)),
+             transforms.ToTensor()])
+
+        dataset = torchvision.datasets.MNIST(root='./data', train=True, download=True, transform=transform)
+        dataloader = torch.utils.data.DataLoader(dataset, batch_size=batch_size, shuffle=True, num_workers=2)
+
+        return dataloader, (h, w)
+
     if name == 'ffhq-thumbs':
 
         h, w = 128, 128
@@ -153,10 +166,12 @@ def naive2(
         sample_bs=16,       # Sampling batch size
         limit=float('inf'), # limits the number of batches per epoch,
         algorithm2 = False,
-        fix_noise = False, # When "renoising", always use the same noise
+        fix_noise = False,  # When "renoising", always use the same noise
         data_name='mnist',
         data_dir=None,
-        unet_channels=(16, 32, 64) # Basic structure of the UNet in channels per block
+        unet_channels=(16, 32, 64), # Basic structure of the UNet in channels per block
+        debug=False,         # Debugging mode bypasses wandb
+        name=''
     ):
     """
 
@@ -173,7 +188,15 @@ def naive2(
     :return:
     """
 
-    dataloader, (h, w)= data(data_name, data_dir, batch_size=bs)
+    wd = wandb.init(
+        name = 'naive2-{name}-{data_name}',
+        project = 'diffusion',
+        tags = [],
+        config =locals(),
+        mode = 'disabled' if debug else 'online'
+    )
+
+    dataloader, (h, w) = data(data_name, data_dir, batch_size=bs)
 
     unet = cb.diffusion.UNet(res=(h, w), channels=unet_channels, num_blocks=3, mid_layers=3)
 
@@ -186,7 +209,7 @@ def naive2(
     Path('./samples_naive2/').mkdir(parents=True, exist_ok=True)
 
     # Create a list containing all pixel indices for quick sampling
-    indices = [(x, y) for x in range(32) for y in range(32)]
+    indices = [(x, y) for x in range(h) for y in range(w)]
     random.shuffle(indices)
     total = len(indices)
 
@@ -217,6 +240,9 @@ def naive2(
             opt.zero_grad()
 
             bar.set_postfix({'loss' : loss.item()})
+            wandb.log({
+                'loss': loss
+            })
 
         with (torch.no_grad()):
             # Sample from the model
@@ -252,15 +278,6 @@ def naive2(
                     grid = make_grid(batch.cpu().clip(0, 1), nrow=4).permute(1, 2, 0)
                     plt.imshow(grid)
                     plt.savefig(f'./samples_naive2/renoised-{e}-{s:05}.png')
-
-                    # grid = make_grid(add_noise(denoised, int(t * total), indices, noise=noise).clip(0, 1), nrow=4).permute(1, 2, 0)
-                    # plt.imshow(grid)
-                    # plt.savefig(here(__file__,f'samples_naive2/renoised-t-{e}-{s:05}.png'))
-                    #
-                    # grid = make_grid(add_noise(denoised, int(tm1 * total), indices, noise=noise).clip(0, 1), nrow=4).permute(1, 2, 0)
-                    # plt.imshow(grid)
-                    # plt.savefig(here(__file__,f'samples_naive2/renoised-tm1-{e}-{s:05}.png'))
-
 
 def add_noise(batch, t, indices, noise=None):
     """
