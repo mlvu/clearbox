@@ -127,10 +127,6 @@ def data(name, data_dir, batch_size):
 
         return dataloader, (h, w)
 
-    if name == 'ffhq':
-
-        pass
-
     if name == 'ffhq-thumbs':
 
         h, w = 128, 128
@@ -138,10 +134,14 @@ def data(name, data_dir, batch_size):
         transform = transforms.Compose(
             [transforms.ToTensor()])
 
-        dataset = (torchvision.datasets.ImageFolder(root='./data', transform=transform))
+        dataset = (torchvision.datasets.ImageFolder(root=data_dir, transform=transform))
         dataloader = torch.utils.data.DataLoader(dataset, batch_size=batch_size, shuffle=True, num_workers=2)
 
         return dataloader, (h, w)
+
+    if name == 'ffhq':
+
+        pass
 
     fc(name)
 
