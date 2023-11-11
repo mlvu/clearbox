@@ -133,7 +133,15 @@ def data(name, data_dir, batch_size):
 
     if name == 'ffhq-thumbs':
 
-        pass
+        h, w = 128, 128
+        # Load MNIST and scale up to 32x32, with color channels
+        transform = transforms.Compose(
+            [transforms.ToTensor()])
+
+        dataset = (torchvision.datasets.ImageFolder(root='./data', transform=transform))
+        dataloader = torch.utils.data.DataLoader(dataset, batch_size=batch_size, shuffle=True, num_workers=2)
+
+        return dataloader, (h, w)
 
     fc(name)
 
@@ -245,7 +253,6 @@ def naive2(
                     plt.imshow(grid)
                     plt.savefig(f'./samples_naive2/renoised-{e}-{s:05}.png')
 
-                    #
                     # grid = make_grid(add_noise(denoised, int(t * total), indices, noise=noise).clip(0, 1), nrow=4).permute(1, 2, 0)
                     # plt.imshow(grid)
                     # plt.savefig(here(__file__,f'samples_naive2/renoised-t-{e}-{s:05}.png'))
