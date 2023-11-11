@@ -13,9 +13,18 @@ class ResBlock(nn.Module):
 
     """
 
-    def __init__(self, channels, dropout=0.1):
+    def __init__(self, channels, dropout=0.1, res_cat=False):
+        """
+
+        :param channels:
+        :param dropout:
+        :param res_cat: If true, assumes that the residual connection over the UNet is concatenated, rather
+            than added. Concatenating also results in larger embeddings for the time and coordinate vectors.
+        """
+
         super().__init__()
 
+        in_channels = channels * 2 if res_cat else channels
 
         self.convolution = nn.Sequential(
             nn.GroupNorm(1, channels), # Equivalent to LayerNorm, but over the channel dimension of an image
@@ -24,15 +33,15 @@ class ResBlock(nn.Module):
             nn.Conv2d(channels, channels, 3, padding=1)
         )
 
-        # Projects the time scalars up to the number of channels
-        self.embed_time = nn.Linear(1, channels)
+        # Projects the time scalars up to the number of input channels
+        self.embed_time = nn.Linear(1, in_channels)
 
         # Projects the pixel coordinates up to the number of channels
-        self.embed_coords = nn.Conv2d(2, channels, 1, padding=0)
+        self.embed_coords = nn.Conv2d(2, in_channels, 1, padding=0)
 
     def forward(self, x, time):
         """
-        :param x: The input batch.
+        :param x: The input batch. The residual connection has already been added/concatenated
         :param time: 1-D batch of values in [0, 1] representing the time step along the noising trajectory.
         :return:
         """
@@ -62,11 +71,13 @@ class UNet(nn.Module):
             channels = (8, 16, 32), # Number of channels at each level of the UNet
             num_blocks = 3,         # Number of res blocks per level
             mid_layers = 3,         # Number of linear layers in the middle block
+            res_cat=False,
         ):
         super().__init__()
 
         self.channels = channels
         self.num_blocks = num_blocks
+        self.res_cat = res_cat
 
         # Initial convolution up to the first res block
         self.initial = nn.Conv2d(3, channels[0], kernel_size=1, padding=0)
@@ -146,9 +157,7 @@ class UNet(nn.Module):
         for mod in self.decoder:
             if type(mod) == ResBlock:
                 h = hs.pop()
-                x = mod(x, time) + h
-
-                # -- In a proper UNet, h is concatenated. This is simpler and cheaper ...
+                x = torch.cat([mod(x, time), h], dim=1) if self.res_cat else mod(x, time) + h
             else:
                 x = mod(x)
 
