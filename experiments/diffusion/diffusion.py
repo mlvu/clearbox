@@ -207,10 +207,10 @@ def naive2(
     unet = cb.diffusion.UNet(res=(h, w), channels=unet_channels, num_blocks=3, mid_layers=3, res_cat=res_cat)
 
     if torch.cuda.is_available():
-        if not dp:
-            unet = unet.cuda()
-        else:
-            unet = torch.nn.DataParallel(unet)
+        unet = unet.cuda()
+
+    if dp:
+        unet = torch.nn.DataParallel(unet)
 
     opt = torch.optim.Adam(lr=lr, params=unet.parameters())
     if warmup > 0:
