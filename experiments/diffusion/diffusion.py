@@ -213,10 +213,10 @@ def naive2(
         with (torch.no_grad()):
             # Sample from the model
 
-            batch = torch.rand(size=(sample_bs, 1, h, w)).round().expand(sample_bs, 3, h, w)
+            batch = torch.rand(size=(sample_bs, 1, h, w), device=d()).round().expand(sample_bs, 3, h, w)
             # -- This is the distribution to which our noising process above converges
 
-            noise = torch.rand(size=(sample_bs, 1, h, w)).round().expand(sample_bs, 3, h, w) \
+            noise = torch.rand(size=(sample_bs, 1, h, w), device=d()).round().expand(sample_bs, 3, h, w) \
                     if fix_noise else None;
 
             for s in (bar := tqdm.trange(steps)):
@@ -237,11 +237,11 @@ def naive2(
                 # -- note that the indices are _not_ shuffled, so that the noise is kept the same between steps
 
                 if (s+1) % 10 == 0:
-                    grid = make_grid(denoised.clip(0, 1), nrow=4).permute(1, 2, 0)
+                    grid = make_grid(denoised.cpu().clip(0, 1), nrow=4).permute(1, 2, 0)
                     plt.imshow(grid)
                     plt.savefig(f'./samples_naive2/denoised-{e}-{s:05}.png')
 
-                    grid = make_grid(batch.clip(0, 1), nrow=4).permute(1, 2, 0)
+                    grid = make_grid(batch.cpu().clip(0, 1), nrow=4).permute(1, 2, 0)
                     plt.imshow(grid)
                     plt.savefig(f'./samples_naive2/renoised-{e}-{s:05}.png')
 
@@ -275,7 +275,7 @@ def add_noise(batch, t, indices, noise=None):
 
     # Sample a random binary tensor, the same size as the batch
     if noise is None:
-        noise = torch.rand(size=(b, 1, h, w)).round().expand(b, 3, h, w)
+        noise = torch.rand(size=(b, 1, h, w), device=d()).round().expand(b, 3, h, w)
     # -- To keep things simple, we'll corrupt the same pixels for each image in the batch. Whether they are made
     #    black or white still differs per image.
 
