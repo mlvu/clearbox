@@ -65,7 +65,8 @@ class ResBlock(nn.Module):
         crds = self.embed_coords(crds)
 
         # Apply the convolution and the residual connection
-        return self.convolution(x + time + crds) + self.resconv(x)
+        res = self.resconv(x) if self.res_cat else x
+        return self.convolution(x + time + crds) + res
 
 class UNet(nn.Module):
     def __init__(self,
