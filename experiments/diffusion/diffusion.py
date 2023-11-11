@@ -189,7 +189,7 @@ def naive2(
     """
 
     wd = wandb.init(
-        name = 'naive2-{name}-{data_name}',
+        name = f'naive2-{name}-{data_name}',
         project = 'diffusion',
         tags = [],
         config =locals(),
@@ -263,12 +263,12 @@ def naive2(
                 if not fix_noise:
                     random.shuffle(indices)
 
+                # -- note that the indices are _not_ shuffled, so that the noise is kept the same between steps
+
                 if not algorithm2:
                     batch = add_noise(denoised, int(tm1 * total), indices, noise=noise) # renoise
                 else:
                     batch = batch - add_noise(denoised, int(t * total), indices, noise=noise) + add_noise(denoised, int(tm1 * total), indices, noise=noise)
-
-                # -- note that the indices are _not_ shuffled, so that the noise is kept the same between steps
 
                 if (s+1) % 10 == 0:
                     grid = make_grid(denoised.cpu().clip(0, 1), nrow=4).permute(1, 2, 0)
