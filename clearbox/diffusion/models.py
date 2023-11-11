@@ -23,8 +23,10 @@ class ResBlock(nn.Module):
         """
 
         super().__init__()
+        self.res_cat = res_cat
 
         in_channels = channels * 2 if res_cat else channels
+        self.resconv = nn.Conv2d(in_channels, channels, 1, padding=0) if res_cat else None
 
         self.convolution = nn.Sequential(
             nn.GroupNorm(1, channels), # Equivalent to LayerNorm, but over the channel dimension of an image
@@ -63,7 +65,7 @@ class ResBlock(nn.Module):
         crds = self.embed_coords(crds)
 
         # Apply the convolution and the residual connection
-        return self.convolution(x + time + crds) + x
+        return self.convolution(x + time + crds) + self.resconv(x)
 
 class UNet(nn.Module):
     def __init__(self,

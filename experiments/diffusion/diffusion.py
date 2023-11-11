@@ -171,7 +171,8 @@ def naive2(
         data_dir=None,
         unet_channels=(16, 32, 64), # Basic structure of the UNet in channels per block
         debug=False,         # Debugging mode bypasses wandb
-        name=''
+        name='',
+        res_cat=False
     ):
     """
 
@@ -198,7 +199,7 @@ def naive2(
 
     dataloader, (h, w) = data(data_name, data_dir, batch_size=bs)
 
-    unet = cb.diffusion.UNet(res=(h, w), channels=unet_channels, num_blocks=3, mid_layers=3)
+    unet = cb.diffusion.UNet(res=(h, w), channels=unet_channels, num_blocks=3, mid_layers=3, res_cat=res_cat)
 
     if torch.cuda.is_available():
         unet = unet.cuda()
