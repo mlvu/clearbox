@@ -14,7 +14,7 @@ mpl.use('Agg')
 import matplotlib.pyplot as plt
 
 import clearbox as cb
-from clearbox.tools import here, d, fc
+from clearbox.tools import here, d, fc, gradient_norm
 
 from pathlib import Path
 
@@ -172,7 +172,9 @@ def naive2(
         unet_channels=(16, 32, 64), # Basic structure of the UNet in channels per block
         debug=False,         # Debugging mode bypasses wandb
         name='',
-        res_cat=False
+        res_cat=False,
+        warmup = 1000,
+        gc=1.0,
     ):
     """
 
@@ -197,6 +199,8 @@ def naive2(
         mode = 'disabled' if debug else 'online'
     )
 
+    scaler = torch.cuda.amp.GradScaler()
+
     dataloader, (h, w) = data(data_name, data_dir, batch_size=bs)
 
     unet = cb.diffusion.UNet(res=(h, w), channels=unet_channels, num_blocks=3, mid_layers=3, res_cat=res_cat)
@@ -205,6 +209,8 @@ def naive2(
         unet = unet.cuda()
 
     opt = torch.optim.Adam(lr=lr, params=unet.parameters())
+    if warmup > 0:
+        sch = torch.optim.lr_scheduler.LambdaLR(opt, lambda i: min(i / (warmup / bs), 1.0))
 
     # Create an output directory to put the samples
     Path('./samples_naive2/').mkdir(parents=True, exist_ok=True)
@@ -231,19 +237,30 @@ def naive2(
             batch = add_noise(batch, t, indices)
 
             # Train the model to denoise
-            output = unet(batch, time=t/total).sigmoid()
+            with torch.cuda.amp.autocast():
+                output = unet(batch, time=t/total).sigmoid()
 
-            loss = ((output - initial_batch) ** 2.0).mean()
-            # -- We predict the _fully_ denoised batch. This will be blurry for high t, but we fix this in the sampling.
+                loss = ((output - initial_batch) ** 2.0).mean()
+                # -- We predict the _fully_ denoised batch. This will be blurry for high t, but we fix this in the sampling.
 
-            loss.backward()
-            opt.step()
-            opt.zero_grad()
+            scaler.scale(loss).backward()
 
             bar.set_postfix({'loss' : loss.item()})
             wandb.log({
-                'loss': loss
+                'loss': loss,
+                'gradient_norm': gradient_norm(unet),
             })
+
+            if gc > 0.0:
+                nn.utils.clip_grad_norm_(unet.parameters(), gc)
+
+            scaler.step(opt)
+            scaler.update()
+
+            opt.zero_grad()
+
+            if warmup > 0:
+                sch.step()
 
         with (torch.no_grad()):
             # Sample from the model
