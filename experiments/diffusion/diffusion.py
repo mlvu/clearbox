@@ -174,7 +174,8 @@ def naive2(
         name='',
         res_cat=False,
         warmup = 1000,
-        gc=1.0,
+        gc = 1.0,
+        dp = False
     ):
     """
 
@@ -206,7 +207,10 @@ def naive2(
     unet = cb.diffusion.UNet(res=(h, w), channels=unet_channels, num_blocks=3, mid_layers=3, res_cat=res_cat)
 
     if torch.cuda.is_available():
-        unet = unet.cuda()
+        if not dp:
+            unet = unet.cuda()
+        else:
+            unet = torch.nn.DataParallel(unet)
 
     opt = torch.optim.Adam(lr=lr, params=unet.parameters())
     if warmup > 0:
