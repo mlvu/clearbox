@@ -98,6 +98,8 @@ def qr(a : nt.ArrayLike, maxit=float('inf'), eps=1e-8, check_sym=True):
         q, r = la.qr(x)
         x = r @ q
 
+        print(np.round(q))
+
         qprod = qprod @ q
 
         # xnorm = x / la.norm(x, axis=0, keepdims=True)

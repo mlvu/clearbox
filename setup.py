@@ -11,7 +11,11 @@ setup(
     install_requires=[
         "numpy",
         "matplotlib",
-        "colorama"
+        "colorama",
+        'tqdm',
+        'fire',
+        'torch',
+        'torchvision'
     ],
     zip_safe=False,
     entry_points={
