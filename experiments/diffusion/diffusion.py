@@ -230,7 +230,7 @@ def naive2(
 
     opt = torch.optim.Adam(lr=lr, params=unet.parameters())
     if warmup > 0:
-        sch = torch.optim.lr_scheduler.LambdaLR(opt, lambda i: min(i / (warmup / bs), 1.0))
+        sch = torch.optim.lr_scheduler.LambdaLR(opt, lambda num_batches: min(num_batches / (warmup / bs), 1.0))
 
     # Create an output directory to put the samples
     Path('./samples_naive2/').mkdir(parents=True, exist_ok=True)
@@ -244,6 +244,8 @@ def naive2(
     for e in range(epochs):
 
         for i, (batch, _) in (bar := tqdm.tqdm(enumerate(dataloader), total=int(ceil(n/bs)))):
+            b, c, h, w = batch.size()
+
             if i > limit:
                 break
 
@@ -252,10 +254,10 @@ def naive2(
 
             initial_batch = batch.clone()
 
-            t = random.randrange(1, len(indices))
+            t = torch.randint(low=1, high=len(indices), size=(b, ), device=d())
 
             random.shuffle(indices)
-            batch = add_noise(batch, t, indices)
+            batch = add_noise_var(batch, t, indices)
 
             # Train the model to denoise
             with torch.cuda.amp.autocast():
@@ -336,7 +338,7 @@ def add_noise(batch, t, indices, noise=None):
 
     b, c, h, w = batch.size()
 
-    # sample a random t between 1 and 32^2 pixels, and then sample t indices in the image
+    # indices of the pixels to be corrupted.
     indt = torch.tensor(indices[:t])
 
     # Sample a random binary tensor, the same size as the batch
@@ -347,6 +349,36 @@ def add_noise(batch, t, indices, noise=None):
 
     # Change the values of the sampled indices to those of the random tensor
     batch[:, :, indt[:, 0], indt[:, 1]] = noise[:, :, indt[:, 0], indt[:, 1]]
+
+    return batch
+
+def add_noise_var(batch, t, indices, noise=None):
+    """
+    Variable version of add noise. Allows for a different t for each instance in the batch.
+
+    :param batch:
+    :param indices:
+    :param t:
+    :return:
+    """
+    b, c, h, w = batch.size()
+    assert t.size(0) == b
+
+    batch = batch.clone()
+
+    indt = []
+    for i, ti in enumerate(t):
+        indt.extend((i, x, y) for x, y in indices[:ti])
+        # -- These are all the indices in the batch tensor that should be corrupted. (There is room for
+        #    optimization here).
+    indt = torch.tensor(indt, device=d())
+
+    # Sample a random binary tensor, the same size as the batch
+    if noise is None:
+        noise = torch.rand(size=(b, 1, h, w), device=d()).round().expand(b, 3, h, w)
+
+    # Change the values of the sampled indices to those of the random tensor
+    batch[indt[:,0], :, indt[:, 1], indt[:, 2]] = noise[indt[:,0], :, indt[:, 1], indt[:, 2]]
 
     return batch
 

@@ -138,7 +138,7 @@ class UNet(nn.Module):
         if type(time) is float:
             time = torch.tensor([time], device=d())
 
-        assert len(time.size()) == 1 and (time.size(0) == 1 or time.size(0) == 1), str(time)
+        assert len(time.size()) == 1 and (time.size(0) == 1 or time.size(0) == b), str(time.size())
 
         x = self.initial(x)
 
