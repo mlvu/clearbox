@@ -243,7 +243,7 @@ def naive2(
             if torch.cuda.is_available():
                 batch = batch.cuda()
 
-            print(batch.min(), batch.max(), batch.mea())
+            print(batch.min(), batch.max(), batch.mean())
             exit()
 
             initial_batch = batch.clone()
