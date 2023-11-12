@@ -243,6 +243,9 @@ def naive2(
             if torch.cuda.is_available():
                 batch = batch.cuda()
 
+            print(batch.min(), batch.max(), batch.mea())
+            exit()
+
             initial_batch = batch.clone()
 
             t = random.randrange(1, len(indices))
