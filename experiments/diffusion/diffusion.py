@@ -186,7 +186,8 @@ def naive2(
         dp = False,
         plot_renoised = False,
         plot_every = 10,       # Plots every n steps of the sampling process
-        num_workers = 2        # Number fo workers for the data loader
+        num_workers = 2,       # Number fo workers for the data loader
+        blocks_per_level = 3   # Number of Res blocks per level of the UNet
     ):
     """
 
@@ -217,7 +218,7 @@ def naive2(
     dataloader, (h, w) = data(data_name, data_dir, batch_size=bs, nw=num_workers)
     print(f'data loaded ({toc():.4} s)')
 
-    unet = cb.diffusion.UNet(res=(h, w), channels=unet_channels, num_blocks=3, mid_layers=3, res_cat=res_cat)
+    unet = cb.diffusion.UNet(res=(h, w), channels=unet_channels, num_blocks=blocks_per_level, mid_layers=3, res_cat=res_cat)
 
     if torch.cuda.is_available():
         unet = unet.cuda()
