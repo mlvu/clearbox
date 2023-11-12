@@ -195,7 +195,8 @@ def naive2(
         num_workers = 2,       # Number fo workers for the data loader
         blocks_per_level = 3,  # Number of Res blocks per level of the UNet
         grayscale=False,       # Whether to convert the data to grayscale
-        size=None              # What to resize the data to
+        size=None,             # What to resize the data to
+        shuffle=True
     ):
     """
 
@@ -226,7 +227,8 @@ def naive2(
     dataloader, (h, w), n = data(data_name, data_dir, batch_size=bs, nw=num_workers, grayscale=grayscale, size=size)
     print(f'data loaded ({toc():.4} s)')
 
-    unet = cb.diffusion.UNet(res=(h, w), channels=unet_channels, num_blocks=blocks_per_level, mid_layers=3, res_cat=res_cat)
+    unet = cb.diffusion.UNet(res=(h, w), channels=unet_channels, num_blocks=blocks_per_level, mid_layers=3,
+                             res_cat=res_cat, max_time=h*w)
 
     if torch.cuda.is_available():
         unet = unet.cuda()
@@ -244,7 +246,9 @@ def naive2(
 
     # Create a list containing all pixel indices for quick sampling
     indices = [(x, y) for x in range(h) for y in range(w)]
-    random.shuffle(indices)
+    if shuffle:
+        random.shuffle(indices)
+
     total = len(indices)
     print('Pixel indices created.')
 
@@ -263,12 +267,13 @@ def naive2(
 
             t = torch.randint(low=1, high=len(indices), size=(b, ), device=d())
 
-            random.shuffle(indices)
+            if shuffle:
+                random.shuffle(indices)
             batch = add_noise_var(batch, t, indices)
 
             # Train the model to denoise
             with torch.cuda.amp.autocast():
-                output = unet(batch, time=t/total).sigmoid()
+                output = unet(batch, time=t).sigmoid()
 
                 loss = ((output - initial_batch) ** 2.0).mean()
                 # -- We predict the _fully_ denoised batch. This will be blurry for high t, but we fix this in the sampling.
@@ -304,21 +309,22 @@ def naive2(
 
             for s in (bar := tqdm.trange(steps)):
 
-                t = (steps-s)/steps  # where we are in the denoising process from 0 to 1
-                tm1 = (steps-s-1)/steps  # next noise level, t-1
+                t =   int((total-1) * (steps-s)/steps)   # where we are in the denoising process from 0 to 1
+                tm1 = int((total-1) * (steps-s-1)/steps) # next noise level, t-1
 
-                denoised = unet(batch, time=t / total).sigmoid()  # denoise
+                denoised = unet(batch, time=t).sigmoid()  # denoise
 
                 if not fix_noise:
-                    random.shuffle(indices)
+                    if shuffle:
+                        random.shuffle(indices)
 
                 # -- note that the indices are _not_ shuffled, so that the noise is kept the same between steps
 
                 if not algorithm2:
-                    batch = add_noise(denoised, int(tm1 * total), indices, noise=noise) # renoise
+                    batch = add_noise_var(denoised, int(tm1), indices, noise=noise) # renoise
                 else:
-                    batch = batch - add_noise(denoised, int(t * total), indices, noise=noise) \
-                                  + add_noise(denoised, int(tm1 * total), indices, noise=noise)
+                    batch = batch - add_noise(denoised, int(t), indices, noise=noise) \
+                                  + add_noise(denoised, int(tm1), indices, noise=noise)
 
                 if (s+1) % plot_every == 0:
                     grid = make_grid(denoised.cpu().clip(0, 1), nrow=4).permute(1, 2, 0)
@@ -369,7 +375,12 @@ def add_noise_var(batch, t, indices, noise=None):
     :return:
     """
     b, c, h, w = batch.size()
-    assert t.size(0) == b
+
+    if type(t) == int:
+        t = torch.tensor([t])
+        t = t.expand(b)
+
+    assert t.size(0) == b, f'{t.size()} {b}'
 
     batch = batch.clone()
 
@@ -379,6 +390,9 @@ def add_noise_var(batch, t, indices, noise=None):
         # -- These are all the indices in the batch tensor that should be corrupted. (There is room for
         #    optimization here).
     indt = torch.tensor(indt, device=d())
+
+    if indt.numel() == 0:
+        return batch
 
     # Sample a random binary tensor, the same size as the batch
     if noise is None:

@@ -13,7 +13,7 @@ class ResBlock(nn.Module):
 
     """
 
-    def __init__(self, channels, dropout=0.1, double_in=False):
+    def __init__(self, channels, dropout=0.1, double_in=False, time_emb=512):
         """
 
         :param channels:
@@ -36,7 +36,7 @@ class ResBlock(nn.Module):
         )
 
         # Projects the time scalars up to the number of input channels
-        self.embed_time = nn.Linear(1, self.in_channels)
+        self.embed_time = nn.Linear(time_emb, self.in_channels)
 
         # Projects the pixel coordinates up to the number of channels
         self.embed_coords = nn.Conv2d(2, self.in_channels, 1, padding=0)
@@ -51,13 +51,13 @@ class ResBlock(nn.Module):
         b, c, h, w = x.size()
         assert c == self.in_channels, f'{c} {self.in_channels}'
 
-        assert len(time.size()) == 1
-        if time.size(0) == 1:
-            time = time.expand(b)
-        assert time.size(0) == b
+        # assert len(time.size()) == 1
+        # if time.size(0) == 1:
+        #     time = time.expand(b)
+        # assert time.size(0) == b
 
         # Project time up to the number of channels ...
-        time = self.embed_time(time[:, None])
+        time = self.embed_time(time)
         # ... and expand to the size of the image
         time = time[:, :, None, None].expand(b, c, h, w)
 
@@ -77,6 +77,8 @@ class UNet(nn.Module):
             num_blocks = 3,         # Number of res blocks per level
             mid_layers = 3,         # Number of linear layers in the middle block
             res_cat=False,
+            max_time=None,          # Maximum number of timesteps
+            time_emb=512            # Time embedding dimension
         ):
         super().__init__()
 
@@ -131,14 +133,21 @@ class UNet(nn.Module):
         # Final convolution down to the required number of output channels
         self.final = nn.Conv2d(channels[0], 3, kernel_size=1, padding=0)
 
+        self.timeembs = nn.Embedding(num_embeddings=max_time, embedding_dim=time_emb)
+
     def forward(self, x, time):
 
         b, c, h, w = x.size()
 
-        if type(time) is float:
+        if type(time) is float or type(time) is int:
             time = torch.tensor([time], device=d())
 
         assert len(time.size()) == 1 and (time.size(0) == 1 or time.size(0) == b), str(time.size())
+
+        if time.size(0) == 1:
+            time = time.expand(b)
+
+        time = self.timeembs(time)
 
         x = self.initial(x)
 
