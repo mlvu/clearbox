@@ -213,6 +213,7 @@ def naive2(
     scaler = torch.cuda.amp.GradScaler()
 
     dataloader, (h, w) = data(data_name, data_dir, batch_size=bs)
+    print('data loaded')
 
     unet = cb.diffusion.UNet(res=(h, w), channels=unet_channels, num_blocks=3, mid_layers=3, res_cat=res_cat)
 
@@ -221,6 +222,7 @@ def naive2(
 
     if dp:
         unet = torch.nn.DataParallel(unet)
+    print('Model created.')
 
     opt = torch.optim.Adam(lr=lr, params=unet.parameters())
     if warmup > 0:
@@ -233,6 +235,7 @@ def naive2(
     indices = [(x, y) for x in range(h) for y in range(w)]
     random.shuffle(indices)
     total = len(indices)
+    print('Pixel indices created.')
 
     for e in range(epochs):
 
@@ -243,15 +246,14 @@ def naive2(
             if torch.cuda.is_available():
                 batch = batch.cuda()
 
-            print(batch.min(), batch.max(), batch.mean())
-            exit()
-
             initial_batch = batch.clone()
+            if i == 0: print('First batch loaded.')
 
             t = random.randrange(1, len(indices))
 
             random.shuffle(indices)
             batch = add_noise(batch, t, indices)
+            if i == 0: print('Noise added.')
 
             # Train the model to denoise
             with torch.cuda.amp.autocast():
@@ -259,6 +261,7 @@ def naive2(
 
                 loss = ((output - initial_batch) ** 2.0).mean()
                 # -- We predict the _fully_ denoised batch. This will be blurry for high t, but we fix this in the sampling.
+            if i == 0: print('Forward finished.')
 
             scaler.scale(loss).backward()
 
@@ -273,6 +276,8 @@ def naive2(
 
             scaler.step(opt)
             scaler.update()
+
+            if i == 0: print('Update finished.')
 
             opt.zero_grad()
 
