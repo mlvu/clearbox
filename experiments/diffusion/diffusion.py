@@ -159,23 +159,24 @@ def data(name, data_dir, batch_size):
     fc(name)
 
 def naive2(
-        epochs=5,
-        steps=60,
-        lr=3e-4,
-        bs=16,              # Training batch size
-        sample_bs=16,       # Sampling batch size
-        limit=float('inf'), # limits the number of batches per epoch,
+        epochs = 5,
+        steps = 60,
+        lr = 3e-4,
+        bs = 16,              # Training batch size
+        sample_bs = 16,       # Sampling batch size
+        limit = float('inf'), # limits the number of batches per epoch,
         algorithm2 = False,
         fix_noise = False,  # When "renoising", always use the same noise
-        data_name='mnist',
-        data_dir=None,
-        unet_channels=(16, 32, 64), # Basic structure of the UNet in channels per block
-        debug=False,         # Debugging mode bypasses wandb
-        name='',
-        res_cat=False,
+        data_name = 'mnist',
+        data_dir = None,
+        unet_channels = (16, 32, 64), # Basic structure of the UNet in channels per block
+        debug = False,         # Debugging mode bypasses wandb
+        name = '',
+        res_cat = False,
         warmup = 1000,
         gc = 1.0,
-        dp = False
+        dp = False,
+        plot_renoised = False,
     ):
     """
 
@@ -297,9 +298,10 @@ def naive2(
                     plt.imshow(grid)
                     plt.savefig(f'./samples_naive2/denoised-{e}-{s:05}.png')
 
-                    grid = make_grid(batch.cpu().clip(0, 1), nrow=4).permute(1, 2, 0)
-                    plt.imshow(grid)
-                    plt.savefig(f'./samples_naive2/renoised-{e}-{s:05}.png')
+                    if plot_renoised:
+                        grid = make_grid(batch.cpu().clip(0, 1), nrow=4).permute(1, 2, 0)
+                        plt.imshow(grid)
+                        plt.savefig(f'./samples_naive2/renoised-{e}-{s:05}.png')
 
 def add_noise(batch, t, indices, noise=None):
     """
