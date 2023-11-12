@@ -113,7 +113,7 @@ def naive(
                     plt.imshow(grid)
                     plt.savefig(here(__file__,f'samples_naive/denoising-{e}-{s:05}.png'))
 
-def data(name, data_dir, batch_size, nw=2):
+def data(name, data_dir, batch_size, nw=2, size=None, grayscale = False):
 
     if name == 'mnist':
         h, w = 32, 32
@@ -143,10 +143,15 @@ def data(name, data_dir, batch_size, nw=2):
 
     if name == 'ffhq-thumbs':
 
-        h, w = 128, 128
+
+        h, w = (128, 128) if size is None else size
+
         # Load MNIST and scale up to 32x32, with color channels
-        transform = transforms.Compose(
-            [transforms.ToTensor()])
+        transform = [] if (h, w) == (128, 128) else [transforms.Resize((h, w))]
+        if grayscale:
+            transform.append(torchvision.transforms.Grayscale(num_output_channels=3))
+        transform.append(transforms.ToTensor())
+        transform = transforms.Compose(transforms)
 
         dataset = (torchvision.datasets.ImageFolder(root=data_dir, transform=transform))
         dataloader = torch.utils.data.DataLoader(dataset, batch_size=batch_size, shuffle=True, num_workers=nw)
@@ -188,7 +193,9 @@ def naive2(
         plot_renoised = False,
         plot_every = 10,       # Plots every n steps of the sampling process
         num_workers = 2,       # Number fo workers for the data loader
-        blocks_per_level = 3   # Number of Res blocks per level of the UNet
+        blocks_per_level = 3,  # Number of Res blocks per level of the UNet
+        grayscale=False,       # Whether to convert the data to grayscale
+        size=None              # What to resize the data to
     ):
     """
 
@@ -216,7 +223,7 @@ def naive2(
     scaler = torch.cuda.amp.GradScaler()
 
     tic()
-    dataloader, (h, w), n = data(data_name, data_dir, batch_size=bs, nw=num_workers)
+    dataloader, (h, w), n = data(data_name, data_dir, batch_size=bs, nw=num_workers, grayscale=grayscale, size=size)
     print(f'data loaded ({toc():.4} s)')
 
     unet = cb.diffusion.UNet(res=(h, w), channels=unet_channels, num_blocks=blocks_per_level, mid_layers=3, res_cat=res_cat)
