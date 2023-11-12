@@ -166,7 +166,7 @@ class UNet(nn.Module):
             if type(mod) == ResBlock:
                 h = hs.pop() # The value from the relevant skip connection
                 x = torch.cat([mod(x, time), h], dim=1) if self.res_cat \
-                    else mod(x, time) + h
+                    else mod(x + h, time)
             else:
                 x = mod(x)
 
