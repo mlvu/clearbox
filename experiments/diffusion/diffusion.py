@@ -160,9 +160,7 @@ def data(name, data_dir, batch_size, nw=2):
             [transforms.ToTensor()])
 
         dataset = (torchvision.datasets.ImageFolder(root=data_dir, transform=transform))
-        print('Dataset created.')
         dataloader = torch.utils.data.DataLoader(dataset, batch_size=batch_size, shuffle=True, num_workers=nw)
-        print('Dataloader created')
 
         return dataloader, (h, w)
 

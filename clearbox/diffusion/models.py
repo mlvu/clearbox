@@ -101,6 +101,8 @@ class UNet(nn.Module):
         self.mres = res[0] // m, res[1] // m
         h = channels[-1] * self.mres[0] * self.mres[1]
 
+        print('Midblock hidden dim:', h)
+
         midblock = []
         for i in range(mid_layers):
             midblock.append(nn.Linear(h, h))
