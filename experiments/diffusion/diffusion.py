@@ -151,7 +151,7 @@ def data(name, data_dir, batch_size, nw=2, size=None, grayscale = False):
         if grayscale:
             transform.append(torchvision.transforms.Grayscale(num_output_channels=3))
         transform.append(transforms.ToTensor())
-        transform = transforms.Compose(transforms)
+        transform = transforms.Compose(transform)
 
         dataset = (torchvision.datasets.ImageFolder(root=data_dir, transform=transform))
         dataloader = torch.utils.data.DataLoader(dataset, batch_size=batch_size, shuffle=True, num_workers=nw)
