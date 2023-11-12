@@ -154,7 +154,15 @@ def data(name, data_dir, batch_size):
 
     if name == 'ffhq':
 
-        pass
+        h, w = 1024, 1024
+        # Load MNIST and scale up to 32x32, with color channels
+        transform = transforms.Compose(
+            [transforms.ToTensor()])
+
+        dataset = (torchvision.datasets.ImageFolder(root=data_dir, transform=transform))
+        dataloader = torch.utils.data.DataLoader(dataset, batch_size=batch_size, shuffle=True, num_workers=2)
+
+        return dataloader, (h, w)
 
     fc(name)
 
