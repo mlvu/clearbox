@@ -177,6 +177,7 @@ def naive2(
         gc = 1.0,
         dp = False,
         plot_renoised = False,
+        plot_every = 10,       # Plots every n steps of the sampling process
     ):
     """
 
@@ -267,7 +268,7 @@ def naive2(
             if warmup > 0:
                 sch.step()
 
-        with (torch.no_grad()):
+        with ((torch.no_grad())):
             # Sample from the model
 
             batch = torch.rand(size=(sample_bs, 1, h, w), device=d()).round().expand(sample_bs, 3, h, w)
@@ -291,9 +292,10 @@ def naive2(
                 if not algorithm2:
                     batch = add_noise(denoised, int(tm1 * total), indices, noise=noise) # renoise
                 else:
-                    batch = batch - add_noise(denoised, int(t * total), indices, noise=noise) + add_noise(denoised, int(tm1 * total), indices, noise=noise)
+                    batch = batch - add_noise(denoised, int(t * total), indices, noise=noise) \
+                                  + add_noise(denoised, int(tm1 * total), indices, noise=noise)
 
-                if (s+1) % 10 == 0:
+                if (s+1) % plot_every == 0:
                     grid = make_grid(denoised.cpu().clip(0, 1), nrow=4).permute(1, 2, 0)
                     plt.imshow(grid)
                     plt.savefig(f'./samples_naive2/denoised-{e}-{s:05}.png')
