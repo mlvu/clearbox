@@ -1,1 +1,1 @@
-from .utilities import logsumexp, kl_categorical, coords, d, here, Lambda, Debug, Flatten, fc, gradient_norm
+from .utilities import logsumexp, kl_categorical, coords, d, here, Lambda, Debug, Flatten, fc, gradient_norm, tic, toc
