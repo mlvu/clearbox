@@ -15,6 +15,7 @@ import matplotlib.pyplot as plt
 
 import clearbox as cb
 from clearbox.tools import here, d, fc, gradient_norm, tic, toc
+from math import ceil
 
 from pathlib import Path
 
@@ -242,7 +243,7 @@ def naive2(
 
     for e in range(epochs):
 
-        for i, (batch, _) in (bar := tqdm.tqdm(enumerate(dataloader), total=n/bs)):
+        for i, (batch, _) in (bar := tqdm.tqdm(enumerate(dataloader), total=int(ceil(n/bs)))):
             if i > limit:
                 break
 
