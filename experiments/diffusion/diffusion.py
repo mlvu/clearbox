@@ -112,7 +112,7 @@ def naive(
                     plt.imshow(grid)
                     plt.savefig(here(__file__,f'samples_naive/denoising-{e}-{s:05}.png'))
 
-def data(name, data_dir, batch_size):
+def data(name, data_dir, batch_size, nw=2):
 
     if name == 'mnist':
         h, w = 32, 32
@@ -123,7 +123,7 @@ def data(name, data_dir, batch_size):
              transforms.ToTensor()])
 
         dataset = torchvision.datasets.MNIST(root='./data', train=True, download=True, transform=transform)
-        dataloader = torch.utils.data.DataLoader(dataset, batch_size=batch_size, shuffle=True, num_workers=2)
+        dataloader = torch.utils.data.DataLoader(dataset, batch_size=batch_size, shuffle=True, num_workers=nw)
 
         return dataloader, (h, w)
 
@@ -136,7 +136,7 @@ def data(name, data_dir, batch_size):
              transforms.ToTensor()])
 
         dataset = torchvision.datasets.MNIST(root='./data', train=True, download=True, transform=transform)
-        dataloader = torch.utils.data.DataLoader(dataset, batch_size=batch_size, shuffle=True, num_workers=2)
+        dataloader = torch.utils.data.DataLoader(dataset, batch_size=batch_size, shuffle=True, num_workers=nw)
 
         return dataloader, (h, w)
 
@@ -148,7 +148,7 @@ def data(name, data_dir, batch_size):
             [transforms.ToTensor()])
 
         dataset = (torchvision.datasets.ImageFolder(root=data_dir, transform=transform))
-        dataloader = torch.utils.data.DataLoader(dataset, batch_size=batch_size, shuffle=True, num_workers=2)
+        dataloader = torch.utils.data.DataLoader(dataset, batch_size=batch_size, shuffle=True, num_workers=nw)
 
         return dataloader, (h, w)
 
@@ -160,7 +160,9 @@ def data(name, data_dir, batch_size):
             [transforms.ToTensor()])
 
         dataset = (torchvision.datasets.ImageFolder(root=data_dir, transform=transform))
-        dataloader = torch.utils.data.DataLoader(dataset, batch_size=batch_size, shuffle=True, num_workers=2)
+        print('Dataset created.')
+        dataloader = torch.utils.data.DataLoader(dataset, batch_size=batch_size, shuffle=True, num_workers=nw)
+        print('Dataloader created')
 
         return dataloader, (h, w)
 
@@ -186,6 +188,7 @@ def naive2(
         dp = False,
         plot_renoised = False,
         plot_every = 10,       # Plots every n steps of the sampling process
+        num_workers = 2        # Number fo workers for the data loader
     ):
     """
 
@@ -213,7 +216,7 @@ def naive2(
     scaler = torch.cuda.amp.GradScaler()
 
     tic()
-    dataloader, (h, w) = data(data_name, data_dir, batch_size=bs)
+    dataloader, (h, w) = data(data_name, data_dir, batch_size=bs, nw=num_workers)
     print(f'data loaded ({toc():.4} s)')
 
     unet = cb.diffusion.UNet(res=(h, w), channels=unet_channels, num_blocks=3, mid_layers=3, res_cat=res_cat)
