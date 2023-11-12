@@ -13,20 +13,20 @@ class ResBlock(nn.Module):
 
     """
 
-    def __init__(self, channels, dropout=0.1, res_cat=False):
+    def __init__(self, channels, dropout=0.1, double_in=False):
         """
 
         :param channels:
         :param dropout:
-        :param res_cat: If true, assumes that the residual connection over the UNet is concatenated, rather
-            than added. Concatenating also results in larger embeddings for the time and coordinate vectors.
+        :param double_in: Double the number of input channels. This is required for a UNet where the skip connections
+            are concatenated rather than added.
         """
 
         super().__init__()
-        self.res_cat = res_cat
+        self.double_in = double_in
 
-        in_channels = channels * 2 if res_cat else channels
-        self.resconv = nn.Conv2d(in_channels, channels, 1, padding=0) if res_cat else None
+        self.in_channels = channels * 2 if double_in else channels
+        self.resconv = nn.Conv2d(self.in_channels, channels, 1, padding=0) if double_in else None
 
         self.convolution = nn.Sequential(
             nn.GroupNorm(1, channels), # Equivalent to LayerNorm, but over the channel dimension of an image
@@ -36,10 +36,10 @@ class ResBlock(nn.Module):
         )
 
         # Projects the time scalars up to the number of input channels
-        self.embed_time = nn.Linear(1, in_channels)
+        self.embed_time = nn.Linear(1, self.in_channels)
 
         # Projects the pixel coordinates up to the number of channels
-        self.embed_coords = nn.Conv2d(2, in_channels, 1, padding=0)
+        self.embed_coords = nn.Conv2d(2, self.in_channels, 1, padding=0)
 
     def forward(self, x, time):
         """
@@ -49,12 +49,12 @@ class ResBlock(nn.Module):
         """
 
         b, c, h, w = x.size()
+        assert c == self.in_channels, f'{c} {self.in_channels}'
+
         assert len(time.size()) == 1
         if time.size(0) == 1:
             time = time.expand(b)
         assert time.size(0) == b
-
-        print(time.size(), b, c, h, w)
 
         # Project time up to the number of channels ...
         time = self.embed_time(time[:, None])
@@ -103,7 +103,7 @@ class UNet(nn.Module):
         self.mres = res[0] // m, res[1] // m
         h = channels[-1] * self.mres[0] * self.mres[1]
 
-        print('Midblock hidden dim:', h)
+        print(' -- unet: midblock hidden dim:', h)
 
         midblock = []
         for i in range(mid_layers):
@@ -122,7 +122,7 @@ class UNet(nn.Module):
             )
 
             # Add a sequence of ResBlocks
-            self.decoder.extend(ResBlock(ch) for _ in range(num_blocks))
+            self.decoder.extend(ResBlock(ch, double_in=res_cat) for _ in range(num_blocks))
 
             if i < len(channels) - 1:
                 # Project down to next number of channels
@@ -145,13 +145,13 @@ class UNet(nn.Module):
         hs = [] # collect values for skip connections
 
         # Encoder branch
+
         for mod in self.encoder:
             if type(mod) == ResBlock:
                 x = mod(x, time)
                 hs.append(x)
             else:
                 x = mod(x)
-
 
         # Mid blocks
 
@@ -161,10 +161,12 @@ class UNet(nn.Module):
         x = x.reshape(b, -1, *self.mres)
 
         # Decoder branch
+
         for mod in self.decoder:
             if type(mod) == ResBlock:
-                h = hs.pop()
-                x = torch.cat([mod(x, time), h], dim=1) if self.res_cat else mod(x, time) + h
+                h = hs.pop() # The value from the relevant skip connection
+                x = torch.cat([mod(x, time), h], dim=1) if self.res_cat \
+                    else mod(x, time) + h
             else:
                 x = mod(x)
 
