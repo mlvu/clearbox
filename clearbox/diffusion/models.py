@@ -29,10 +29,10 @@ class ResBlock(nn.Module):
         self.resconv = nn.Conv2d(self.in_channels, channels, 1, padding=0) if double_in else None
 
         self.convolution = nn.Sequential(
-            nn.GroupNorm(1, channels), # Equivalent to LayerNorm, but over the channel dimension of an image
+            nn.GroupNorm(1, self.in_channels), # Equivalent to LayerNorm, but over the channel dimension of an image
             nn.ReLU(),
             nn.Dropout(dropout),
-            nn.Conv2d(channels, channels, 3, padding=1)
+            nn.Conv2d(self.in_channels, channels, 3, padding=1)
         )
 
         # Projects the time scalars up to the number of input channels
