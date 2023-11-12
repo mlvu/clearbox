@@ -125,7 +125,7 @@ def data(name, data_dir, batch_size, nw=2):
         dataset = torchvision.datasets.MNIST(root='./data', train=True, download=True, transform=transform)
         dataloader = torch.utils.data.DataLoader(dataset, batch_size=batch_size, shuffle=True, num_workers=nw)
 
-        return dataloader, (h, w)
+        return dataloader, (h, w), len(dataset)
 
     if name == 'mnist-128':
         h, w = 128, 128
@@ -138,7 +138,7 @@ def data(name, data_dir, batch_size, nw=2):
         dataset = torchvision.datasets.MNIST(root='./data', train=True, download=True, transform=transform)
         dataloader = torch.utils.data.DataLoader(dataset, batch_size=batch_size, shuffle=True, num_workers=nw)
 
-        return dataloader, (h, w)
+        return dataloader, (h, w), len(dataset)
 
     if name == 'ffhq-thumbs':
 
@@ -150,7 +150,7 @@ def data(name, data_dir, batch_size, nw=2):
         dataset = (torchvision.datasets.ImageFolder(root=data_dir, transform=transform))
         dataloader = torch.utils.data.DataLoader(dataset, batch_size=batch_size, shuffle=True, num_workers=nw)
 
-        return dataloader, (h, w)
+        return dataloader, (h, w), len(dataset)
 
     if name == 'ffhq':
 
@@ -162,7 +162,7 @@ def data(name, data_dir, batch_size, nw=2):
         dataset = (torchvision.datasets.ImageFolder(root=data_dir, transform=transform))
         dataloader = torch.utils.data.DataLoader(dataset, batch_size=batch_size, shuffle=True, num_workers=nw)
 
-        return dataloader, (h, w)
+        return dataloader, (h, w), len(dataset)
 
     fc(name)
 
@@ -215,7 +215,7 @@ def naive2(
     scaler = torch.cuda.amp.GradScaler()
 
     tic()
-    dataloader, (h, w) = data(data_name, data_dir, batch_size=bs, nw=num_workers)
+    dataloader, (h, w), n = data(data_name, data_dir, batch_size=bs, nw=num_workers)
     print(f'data loaded ({toc():.4} s)')
 
     unet = cb.diffusion.UNet(res=(h, w), channels=unet_channels, num_blocks=blocks_per_level, mid_layers=3, res_cat=res_cat)
@@ -242,7 +242,7 @@ def naive2(
 
     for e in range(epochs):
 
-        for i, (batch, _) in (bar := tqdm.tqdm(enumerate(dataloader))):
+        for i, (batch, _) in (bar := tqdm.tqdm(enumerate(dataloader), total=n/bs)):
             if i > limit:
                 break
 
@@ -269,6 +269,7 @@ def naive2(
             wandb.log({
                 'loss': loss,
                 'gradient_norm': gradient_norm(unet),
+                'learning_rate': sch.get_last_lr()[0],
             })
 
             if gc > 0.0:
