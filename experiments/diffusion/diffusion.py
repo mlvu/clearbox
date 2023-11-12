@@ -14,7 +14,7 @@ mpl.use('Agg')
 import matplotlib.pyplot as plt
 
 import clearbox as cb
-from clearbox.tools import here, d, fc, gradient_norm
+from clearbox.tools import here, d, fc, gradient_norm, tic, toc
 
 from pathlib import Path
 
@@ -212,8 +212,9 @@ def naive2(
 
     scaler = torch.cuda.amp.GradScaler()
 
+    tic()
     dataloader, (h, w) = data(data_name, data_dir, batch_size=bs)
-    print('data loaded')
+    print(f'data loaded ({toc():.4} s)')
 
     unet = cb.diffusion.UNet(res=(h, w), channels=unet_channels, num_blocks=3, mid_layers=3, res_cat=res_cat)
 
@@ -247,13 +248,11 @@ def naive2(
                 batch = batch.cuda()
 
             initial_batch = batch.clone()
-            if i == 0: print('First batch loaded.')
 
             t = random.randrange(1, len(indices))
 
             random.shuffle(indices)
             batch = add_noise(batch, t, indices)
-            if i == 0: print('Noise added.')
 
             # Train the model to denoise
             with torch.cuda.amp.autocast():
@@ -261,7 +260,6 @@ def naive2(
 
                 loss = ((output - initial_batch) ** 2.0).mean()
                 # -- We predict the _fully_ denoised batch. This will be blurry for high t, but we fix this in the sampling.
-            if i == 0: print('Forward finished.')
 
             scaler.scale(loss).backward()
 
@@ -276,8 +274,6 @@ def naive2(
 
             scaler.step(opt)
             scaler.update()
-
-            if i == 0: print('Update finished.')
 
             opt.zero_grad()
 
