@@ -192,6 +192,7 @@ def naive2(
         dp = False,
         plot_renoised = False,
         plot_every = 10,       # Plots every n steps of the sampling process
+        sample_every = 3,      # Sample from the model every n epochs
         num_workers = 2,       # Number fo workers for the data loader
         blocks_per_level = 3,  # Number of Res blocks per level of the UNet
         grayscale=False,       # Whether to convert the data to grayscale
@@ -298,43 +299,44 @@ def naive2(
             if warmup > 0:
                 sch.step()
 
-        with ((torch.no_grad())):
-            # Sample from the model
+        if e % sample_every == 0:
+            with ((torch.no_grad())):
+                # Sample from the model
 
-            batch = torch.rand(size=(sample_bs, 1, h, w), device=d()).round().expand(sample_bs, 3, h, w)
-            # -- This is the distribution to which our noising process above converges
+                batch = torch.rand(size=(sample_bs, 1, h, w), device=d()).round().expand(sample_bs, 3, h, w)
+                # -- This is the distribution to which our noising process above converges
 
-            noise = torch.rand(size=(sample_bs, 1, h, w), device=d()).round().expand(sample_bs, 3, h, w) \
-                    if fix_noise else None;
+                noise = torch.rand(size=(sample_bs, 1, h, w), device=d()).round().expand(sample_bs, 3, h, w) \
+                        if fix_noise else None;
 
-            for s in (bar := tqdm.trange(steps)):
+                for s in (bar := tqdm.trange(steps)):
 
-                t =   int((total-1) * (steps-s)/steps)   # where we are in the denoising process from 0 to 1
-                tm1 = int((total-1) * (steps-s-1)/steps) # next noise level, t-1
+                    t =   int((total-1) * (steps-s)/steps)   # where we are in the denoising process from 0 to 1
+                    tm1 = int((total-1) * (steps-s-1)/steps) # next noise level, t-1
 
-                denoised = unet(batch, time=t).sigmoid()  # denoise
+                    denoised = unet(batch, time=t).sigmoid()  # denoise
 
-                if not fix_noise:
-                    if shuffle:
-                        random.shuffle(indices)
+                    if not fix_noise:
+                        if shuffle:
+                            random.shuffle(indices)
 
-                # -- note that the indices are _not_ shuffled, so that the noise is kept the same between steps
+                    # -- note that the indices are _not_ shuffled, so that the noise is kept the same between steps
 
-                if not algorithm2:
-                    batch = add_noise_var(denoised, int(tm1), indices, noise=noise) # renoise
-                else:
-                    batch = batch - add_noise(denoised, int(t), indices, noise=noise) \
-                                  + add_noise(denoised, int(tm1), indices, noise=noise)
+                    if not algorithm2:
+                        batch = add_noise_var(denoised, int(tm1), indices, noise=noise) # renoise
+                    else:
+                        batch = batch - add_noise(denoised, int(t), indices, noise=noise) \
+                                      + add_noise(denoised, int(tm1), indices, noise=noise)
 
-                if (s+1) % plot_every == 0:
-                    grid = make_grid(denoised.cpu().clip(0, 1), nrow=4).permute(1, 2, 0)
-                    plt.imshow(grid)
-                    plt.savefig(f'./samples_naive2/denoised-{e}-{s:05}.png')
-
-                    if plot_renoised:
-                        grid = make_grid(batch.cpu().clip(0, 1), nrow=4).permute(1, 2, 0)
+                    if (s+1) % plot_every == 0:
+                        grid = make_grid(denoised.cpu().clip(0, 1), nrow=4).permute(1, 2, 0)
                         plt.imshow(grid)
-                        plt.savefig(f'./samples_naive2/renoised-{e}-{s:05}.png')
+                        plt.savefig(f'./samples_naive2/denoised-{e}-{s:05}.png')
+
+                        if plot_renoised:
+                            grid = make_grid(batch.cpu().clip(0, 1), nrow=4).permute(1, 2, 0)
+                            plt.imshow(grid)
+                            plt.savefig(f'./samples_naive2/renoised-{e}-{s:05}.png')
 
 def add_noise(batch, t, indices, noise=None):
     """
