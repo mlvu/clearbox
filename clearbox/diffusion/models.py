@@ -54,6 +54,8 @@ class ResBlock(nn.Module):
             time = time.expand(b)
         assert time.size(0) == b
 
+        print(time.size(), b, c, h, w)
+
         # Project time up to the number of channels ...
         time = self.embed_time(time[:, None])
         # ... and expand to the size of the image
