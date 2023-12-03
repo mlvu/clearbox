@@ -25,14 +25,59 @@ import tqdm, wandb
 Implementations of the basic idea behind diffusion. 
 """
 
+def make_plots(bs = 128, k=128, steps=240):
+
+    tic()
+    dataloader, (h, w), n = data('mnist', data_dir='.', batch_size=bs,  grayscale=True, size=(32, 32))
+    print(f'data loaded ({toc():.4} s)')
+
+    Path('plots/').mkdir(parents=True, exist_ok=True)
+
+
+    # plot the data
+    for batch, _ in dataloader:
+        grid = make_grid(batch[16:32].clip(0, 1), nrow=4).permute(1, 2, 0)
+        plt.imshow(grid)
+        plt.gca().axis('off')
+        plt.savefig(f'plots/data.png')
+
+        break
+
+    i = 36
+    for s in range(120):
+
+        plt.imshow(batch[i].permute(1, 2, 0))
+        plt.gca().axis('off')
+        plt.savefig(f'plots/z_{s:02}.png')
+
+        # Sample a random binary tensor, the same size as the batch
+        noise = torch.rand(size=(bs, 1, h, w)).round().expand(bs, 3, h, w)
+
+        # Sample `k` pixel indices to apply the noise to
+        indices = torch.randint(low=0, high=32, size=(k, 2))
+        # -- To keep things simple, we'll corrupt the same pixels for each image in the batch. Whether they are made
+        #    black or white still differs per image.
+
+        # Change the values of the sampled indices to those of the random tensor
+        batch[:, :, indices[:, 0], indices[:, 1]] = noise[:, :, indices[:, 0], indices[:, 1]]
+
+
 def naive(
         epochs=5,
         steps=60,
         k=32,
         lr=3e-4,
         bs=16,
+        sample_bs = 16,
         limit=float('inf'), # limits the number of batches per epoch,
-        imsize=(32, 32)
+        unet_channels=(8,16,24),
+        data_name='mnist',
+        data_dir=None,
+        size=(32,32),
+        num_workers=2,
+        grayscale=False,
+        res_cat=False,
+        blocks_per_level=3
      ):
     """
     A Naive approach to diffussion with very little math.
@@ -47,42 +92,43 @@ def naive(
     :return:
     """
 
-    h,w = imsize
+    tic()
+    dataloader, (h, w), n = data(data_name, data_dir, batch_size=bs, nw=num_workers, grayscale=grayscale, size=size)
+    print(f'data loaded ({toc():.4} s)')
 
-    # Load MNIST and scale up to 32x32, with color channels
-    transform = transforms.Compose(
-        [torchvision.transforms.Grayscale(num_output_channels=3),
-         transforms.Resize((h, w)),
-         transforms.ToTensor()])
+    unet = cb.diffusion.UNet(res=(h, w), channels=unet_channels, num_blocks=blocks_per_level, mid_layers=3,
+                             res_cat=res_cat, max_time=steps)
 
-    data = torchvision.datasets.MNIST(root='./data', train=True, download=True, transform=transform)
-    dataloader = torch.utils.data.DataLoader(data, batch_size=bs, shuffle=True, num_workers=2)
-
-    unet = cb.diffusion.UNet(a=8, b=12, c=16, res=(h, w), numouts=3)
+    if torch.cuda.is_available():
+        unet.cuda()
 
     opt = torch.optim.Adam(lr=lr, params=unet.parameters())
 
-    Path(here(__file__,'samples_naive/')).mkdir(parents=True, exist_ok=True)
+    Path('samples_naive/').mkdir(parents=True, exist_ok=True)
 
     for e in range(epochs):
-        for i, (batch, _) in (bar := tqdm.tqdm(enumerate(dataloader))):
+        for i, (batch, _) in (bar := tqdm.tqdm(enumerate(dataloader), total=ceil(n/bs))):
             if i > limit:
                 break
+
+            if torch.cuda.is_available():
+                batch = batch.cuda()
 
             for s in range(steps):
 
                 old_batch = batch.clone()
 
                 if i == 0 and (s+1) % 10 == 0:
-                    grid = make_grid(batch, nrow=4).permute(1, 2, 0)
+                    grid = make_grid(batch.cpu(), nrow=4).permute(1, 2, 0)
                     plt.imshow(grid)
-                    plt.savefig(here(__file__, f'samples_naive/noising-{s:05}.png'))
+                    plt.savefig(f'samples_naive/noising-{s:05}.png')
+                    plt.gca().axis('off')
 
                 # Sample a random binary tensor, the same size as the batch
-                noise = torch.rand(size=(bs, 1, h, w)).round().expand(bs, 3, h, w)
+                noise = torch.rand(size=(bs, 1, h, w), device=d()).round().expand(bs, 3, h, w)
 
                 # Sample `k` pixel indices to apply the noise to
-                indices = torch.randint(low=0, high=32, size=(k, 2))
+                indices = torch.randint(low=0, high=32, size=(k, 2), device=d())
                 # -- To keep things simple, we'll corrupt the same pixels for each image in the batch. Whether they are made
                 #    black or white still differs per image.
 
@@ -90,7 +136,7 @@ def naive(
                 batch[:, :, indices[:, 0], indices[:, 1]] = noise[:, :, indices[:, 0], indices[:, 1]]
 
                 # Train the model to denoise
-                output = unet(batch, step=s/steps).sigmoid()
+                output = unet(batch, time=s).sigmoid()
 
                 loss = ((output - old_batch) ** 2.0).mean()
                 # loss = F.binary_cross_entropy(output, old_batch).mean()
@@ -103,15 +149,16 @@ def naive(
 
         with torch.no_grad():
             # Sample from the model
-            batch = torch.rand(size=(bs, 1, h, w)).round().expand(bs, 3, h, w)
+            batch = torch.rand(size=(sample_bs, 1, h, w), device=d()).round().expand(sample_bs, 3, h, w)
             # -- This is the distribution to which our noising process above converges
             for s in (bar := tqdm.trange(steps)):
-                batch = unet(batch, step=(steps-s-1)/steps).sigmoid()
+                batch = unet(batch, time=steps-s-1).sigmoid()
 
                 if (s+1) % 10 == 0:
-                    grid = make_grid(batch.clip(0, 1), nrow=4).permute(1, 2, 0)
+                    grid = make_grid(batch.clip(0, 1).cpu(), nrow=4).permute(1, 2, 0)
                     plt.imshow(grid)
-                    plt.savefig(here(__file__,f'samples_naive/denoising-{e}-{s:05}.png'))
+                    plt.savefig(f'samples_naive/denoising-{e}-{s:05}.png')
+                    plt.gca().axis('off')
 
 def data(name, data_dir, batch_size, nw=2, size=None, grayscale = False):
 
