@@ -108,6 +108,8 @@ def naive(
 
     for e in range(epochs):
         for i, (batch, _) in (bar := tqdm.tqdm(enumerate(dataloader), total=ceil(n/bs))):
+            cbs = batch.size(0)
+
             if i > limit:
                 break
 
@@ -119,13 +121,13 @@ def naive(
                 old_batch = batch.clone()
 
                 if i == 0 and (s+1) % 10 == 0:
-                    grid = make_grid(batch.cpu(), nrow=4).permute(1, 2, 0)
+                    grid = make_grid(batch[:16].cpu(), nrow=4).permute(1, 2, 0)
                     plt.imshow(grid)
                     plt.savefig(f'samples_naive/noising-{s:05}.png')
                     plt.gca().axis('off')
 
                 # Sample a random binary tensor, the same size as the batch
-                noise = torch.rand(size=(bs, 1, h, w), device=d()).round().expand(bs, 3, h, w)
+                noise = torch.rand(size=(cbs, 1, h, w), device=d()).round().expand(bs, 3, h, w)
 
                 # Sample `k` pixel indices to apply the noise to
                 indices = torch.randint(low=0, high=32, size=(k, 2), device=d())
@@ -155,7 +157,7 @@ def naive(
                 batch = unet(batch, time=steps-s-1).sigmoid()
 
                 if (s+1) % 10 == 0:
-                    grid = make_grid(batch.clip(0, 1).cpu(), nrow=4).permute(1, 2, 0)
+                    grid = make_grid(batch[:16].clip(0, 1).cpu(), nrow=4).permute(1, 2, 0)
                     plt.imshow(grid)
                     plt.savefig(f'samples_naive/denoising-{e}-{s:05}.png')
                     plt.gca().axis('off')
