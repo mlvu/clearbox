@@ -127,7 +127,7 @@ def naive(
                     plt.gca().axis('off')
 
                 # Sample a random binary tensor, the same size as the batch
-                noise = torch.rand(size=(cbs, 1, h, w), device=d()).round().expand(bs, 3, h, w)
+                noise = torch.rand(size=(cbs, 1, h, w), device=d()).round().expand(cbs, 3, h, w)
 
                 # Sample `k` pixel indices to apply the noise to
                 indices = torch.randint(low=0, high=32, size=(k, 2), device=d())
