@@ -20,6 +20,7 @@ from math import ceil
 from pathlib import Path
 
 import tqdm, wandb
+from tqdm import trange
 
 """ 
 Implementations of the basic idea behind diffusion. 
@@ -33,6 +34,15 @@ def make_plots(bs = 128, k=128, steps=240):
 
     Path('plots/').mkdir(parents=True, exist_ok=True)
 
+    avg = torch.zeros(1, 3, 32, 32)
+    n = 0
+    for batch, _ in dataloader:
+        avg += batch.sum(dim=0)
+        n += batch.size(0)
+
+    plt.imshow((avg[0]/n).clip(0, 1).permute(1, 2, 0))
+    plt.gca().axis('off')
+    plt.savefig(f'plots/average.png')
 
     # plot the data
     for batch, _ in dataloader:
@@ -43,10 +53,27 @@ def make_plots(bs = 128, k=128, steps=240):
 
         break
 
-    i = 36
-    for s in range(120):
+    i = 36 # instance to plot
 
-        plt.imshow(batch[i].permute(1, 2, 0))
+    # Gaussian noise
+    gamma = bargamma = 0.98
+    zt = batch.clone()
+    for s in trange(20):
+
+        plt.imshow(zt[i].permute(1, 2, 0).clip(0, 1))
+        plt.gca().axis('off')
+        plt.savefig(f'plots/gaussianz_{s:02}.png')
+
+        # Sample a random binary tensor, the same size as the batch
+        noise = torch.randn(size=(bs, 3, h, w))
+        zt = bargamma * zt + (1-bargamma**2) * noise
+
+        bargamma *= gamma
+
+    zt = batch.clone()
+    for s in trange(120):
+
+        plt.imshow(zt[i].permute(1, 2, 0))
         plt.gca().axis('off')
         plt.savefig(f'plots/z_{s:02}.png')
 
@@ -59,12 +86,13 @@ def make_plots(bs = 128, k=128, steps=240):
         #    black or white still differs per image.
 
         # Change the values of the sampled indices to those of the random tensor
-        batch[:, :, indices[:, 0], indices[:, 1]] = noise[:, :, indices[:, 0], indices[:, 1]]
+        zt[:, :, indices[:, 0], indices[:, 1]] = noise[:, :, indices[:, 0], indices[:, 1]]
 
 
 def naive(
         epochs=5,
         steps=60,
+        name={'noname'},
         k=32,
         lr=3e-4,
         bs=16,
@@ -77,7 +105,10 @@ def naive(
         num_workers=2,
         grayscale=False,
         res_cat=False,
-        blocks_per_level=3
+        blocks_per_level=3,
+        warmup = 1000,
+        gc = 1.0,
+        debug = False
      ):
     """
     A Naive approach to diffussion with very little math.
@@ -92,6 +123,14 @@ def naive(
     :return:
     """
 
+    wd = wandb.init(
+        name = f'naive1-{name}-{data_name}',
+        project = 'diffusion',
+        tags = [],
+        config =locals(),
+        mode = 'disabled' if debug else 'online'
+    )
+
     tic()
     dataloader, (h, w), n = data(data_name, data_dir, batch_size=bs, nw=num_workers, grayscale=grayscale, size=size)
     print(f'data loaded ({toc():.4} s)')
@@ -103,6 +142,8 @@ def naive(
         unet.cuda()
 
     opt = torch.optim.Adam(lr=lr, params=unet.parameters())
+    if warmup > 0:
+        sch = torch.optim.lr_scheduler.LambdaLR(opt, lambda num_batches: min(num_batches / (warmup / bs), 1.0))
 
     Path('samples_naive/').mkdir(parents=True, exist_ok=True)
 
@@ -144,10 +185,23 @@ def naive(
                 # loss = F.binary_cross_entropy(output, old_batch).mean()
 
                 loss.backward()
+
+
+                bar.set_postfix({'loss' : loss.item()})
+                wandb.log({
+                    'loss': loss,
+                    'gradient_norm': gradient_norm(unet),
+                    'learning_rate': sch.get_last_lr()[0],
+                })
+
+                if gc > 0.0:
+                    nn.utils.clip_grad_norm_(unet.parameters(), gc)
+
                 opt.step()
                 opt.zero_grad()
 
-                bar.set_postfix({'loss' : loss.item()})
+                if warmup > 0:
+                    sch.step()
 
         with torch.no_grad():
             # Sample from the model
@@ -173,7 +227,7 @@ def data(name, data_dir, batch_size, nw=2, size=None, grayscale = False):
              transforms.ToTensor()])
 
         dataset = torchvision.datasets.MNIST(root='./data', train=True, download=True, transform=transform)
-        dataloader = torch.utils.data.DataLoader(dataset, batch_size=batch_size, shuffle=True, num_workers=nw)
+        dataloader = torch.utils.data.DataLoader(dataset, batch_size=batch_size, shuffle=False, num_workers=nw)
 
         return dataloader, (h, w), len(dataset)
 
