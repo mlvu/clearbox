@@ -434,12 +434,22 @@ def naive2(
                     if (s+1) % plot_every == 0:
                         grid = make_grid(denoised.cpu().clip(0, 1), nrow=4).permute(1, 2, 0)
                         plt.imshow(grid)
+                        plt.gca().axis('off')
                         plt.savefig(f'./samples_naive2/denoised-{e}-{s:05}.png')
+
+                        plt.imshow(denoised[0].cpu().clip(0, 1).permute(1, 2, 0) )
+                        plt.gca().axis('off')
+                        plt.savefig(f'./samples_naive2/single-denoised-{e}-{s:05}.png')
 
                         if plot_renoised:
                             grid = make_grid(batch.cpu().clip(0, 1), nrow=4).permute(1, 2, 0)
                             plt.imshow(grid)
+                            plt.gca().axis('off')
                             plt.savefig(f'./samples_naive2/renoised-{e}-{s:05}.png')
+
+                            plt.imshow(denoised[0].cpu().clip(0, 1).permute(1, 2, 0) )
+                            plt.gca().axis('off')
+                            plt.savefig(f'./samples_naive2/single-renoised-{e}-{s:05}.png')
 
 def add_noise(batch, t, indices, noise=None):
     """
