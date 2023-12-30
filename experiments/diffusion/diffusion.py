@@ -583,6 +583,9 @@ def gaussian(
             if i > limit:
                 break
 
+            if torch.cuda.is_available():
+                batch = batch.cuda()
+
             b, c, h, w = batch.size()
 
             t = torch.randint(low=1, high=steps, size=(b,), device=d())
