@@ -589,7 +589,7 @@ def gaussian(
             b, c, h, w = batch.size()
 
             t = torch.randint(low=1, high=steps, size=(b,), device=d())
-            noise = torch.randn(size=(b, c, h, w))
+            noise = torch.randn(size=(b, c, h, w), device=d())
 
             zt = gammas_bar[t, None, None, None] * batch + sigmas_bar[t, None, None, None].sqrt() * noise
             assert zt.size() == (b, c, h, w)
