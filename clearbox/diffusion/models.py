@@ -131,7 +131,7 @@ class UNet(nn.Module):
                 self.decoder.append(nn.Conv2d(ch, rchannels[i+1], kernel_size=1, padding=0))
 
         # Final convolution down to the required number of output channels
-        self.final = nn.Conv2d(channels[0], 3, kernel_size=1, padding=0)
+        self.final = nn.Conv2d(channels[0] + 3, 3, kernel_size=1, padding=0)
 
         self.timeembs = nn.Embedding(num_embeddings=max_time, embedding_dim=time_emb)
 
@@ -149,9 +149,9 @@ class UNet(nn.Module):
 
         time = self.timeembs(time)
 
-        x = self.initial(x)
+        hs = [x] # Collect values for skip connections, start with the input image
 
-        hs = [] # collect values for skip connections
+        x = self.initial(x) # Project up to the first nr. of channels
 
         # Encoder branch
 
@@ -179,183 +179,186 @@ class UNet(nn.Module):
             else:
                 x = mod(x)
 
+        x = torch.cat([x, hs.pop()], dim=1) # -- The final pop from `hs` is the input image.
         return self.final(x)
 
-class UNetOld(nn.Module):
-    """
-    A fairly arbitrary UNet.
-    """
 
-    def __init__(self, a=16, b=32, c=128, ls=2, krnl=3, res=(64, 64), mlm_offset=0.0, ln_params=True, num_mids=3,
-                 numouts=6):
-        super().__init__()
-
-        self.latent_size = ls
-        self.mlm_offset = mlm_offset
-
-        self.res = res
-        self.mr = mr = res[0] // 2**3, res[1] // 2**3
-
-        pm = 'zeros'
-        # non-linearity
-        self.nl = F.relu
-        # self.nl = lambda x : torch.sigmoid(x * 1e3) # torch.sign, F.relu
-        # -- A sigmoid nonlinearity with a temperature parameter offers a nice way to tune between high and low frequency
-        #    structures
-
-        pad = krnl//2
-        krnl = (krnl, krnl)
-
-        self.coords0 = coords(res[0],      res[1])
-        self.coords1 = coords(res[0] // 2, res[1] // 2)
-        self.coords2 = coords(res[0] // 4, res[1] // 4)
-        self.coords3 = coords(res[0] // 8, res[1] // 8)
-
-        self.conve11 = nn.Conv2d(3+3, a, krnl, padding=pad, padding_mode=pm)
-        self.conve1point = nn.Conv2d(a+3, a, (1, 1), padding=0)
-
-        self.ln1 = nn.LayerNorm(a, elementwise_affine=ln_params)
-
-        self.conve21 = nn.Conv2d(a+3, b, krnl, padding=pad, padding_mode=pm)
-        self.conve22 = nn.Conv2d(b+3, b, krnl, padding=pad, padding_mode=pm)
-        self.conve2point = nn.Conv2d(b+3, b, (1, 1), padding=0)
-
-        self.ln2 = nn.LayerNorm(b, elementwise_affine=ln_params)
-
-        self.conve31 = nn.Conv2d(b+3, c, krnl, padding=pad, padding_mode=pm)
-        self.conve32 = nn.Conv2d(c+3, c, krnl, padding=pad, padding_mode=pm)
-        self.conve3point = nn.Conv2d(c+3, c, (1, 1), padding=0)
-
-        self.ln3 = nn.LayerNorm(c, elementwise_affine=ln_params)
-
-        self.line = nn.Linear(c * mr[0] * mr[1], ls)
-
-        mids = [nn.Linear(ls, ls) for _ in range(num_mids)]
-        self.mids = nn.ModuleList(mids)
-
-        self.lind = nn.Linear(ls, c * mr[0] * mr[1])
-
-        self.convd3point = nn.Conv2d(c+3, c, (1, 1), padding=0)
-
-        self.ln4 = nn.LayerNorm(c, elementwise_affine=ln_params)
-
-        self.convd32 = nn.ConvTranspose2d(c+3, c, krnl, padding=pad)
-        self.convd31 = nn.ConvTranspose2d(c+3, b, krnl, padding=pad)
-
-        self.convd2point = nn.Conv2d(b+3, b, (1, 1), padding=0)
-
-        self.ln5 = nn.LayerNorm(b, elementwise_affine=ln_params)
-
-        self.convd22 =nn.ConvTranspose2d(b+3, b, krnl, padding=pad)
-        self.convd21 =nn.ConvTranspose2d(b+3, a, krnl, padding=pad)
-
-        self.convd1point = nn.Conv2d(a+3, a, (1, 1), padding=0)
-
-        self.ln6 = nn.LayerNorm(a, elementwise_affine=ln_params)
-
-        self.convd11 = nn.ConvTranspose2d(a+3, numouts, krnl, padding=pad)
-        # -- We have six output channels. 3 for the means, 3 for the variances.
-
-        self.alphas = torch.tensor([1., 1., 1.])
-        self.betas  = torch.tensor([1., 1., 1.])
-
-        # -- We have four output channels. The fourth is a probability distribution that tells us how the input and
-        #    and output are mixed in the sample.
-
-    def coordconv(self, img, coords, step):
-
-        b, c, h, w = img.size()
-        assert coords.size() == (1, 2, h, w)
-
-        step = torch.full(fill_value=step, size=(b, 1, h, w), device=d())
-
-        return torch.cat([img, coords.expand(b, 2, h, w), step], dim=1)
-
-    def forward(self, img, step):
-
-        b, c, h, w = img.size()
-
-        # forward pass
-        x = img
-
-        x = self.coordconv(x, self.coords0, step)
-        x = self.nl(self.conve11(x))
-
-        x = self.coordconv(x, self.coords0, step)
-        x = x_e11 = F.relu(self.conve1point(x))
-
-        x = F.max_pool2d(x, kernel_size=2)
-        x = self.ln1(x.permute(0, 2, 3, 1)).permute(0, 3, 1, 2)
-
-        x = self.coordconv(x, self.coords1, step)
-        x = self.nl(self.conve21(x))
-
-        x = self.coordconv(x, self.coords1, step)
-        x = self.nl(self.conve22(x))
-
-        x = self.coordconv(x, self.coords1, step)
-        x = x_e22 = self.nl(self.conve2point(x))
-
-        x = F.max_pool2d(x, kernel_size=2)
-        x = self.nl(x.permute(0, 2, 3, 1)).permute(0, 3, 1, 2)
-
-        x = self.coordconv(x, self.coords2, step)
-        x = self.nl(self.conve31(x))
-
-        x = self.coordconv(x, self.coords2, step)
-        x = self.nl(self.conve32(x))
-
-        x = self.coordconv(x, self.coords2, step)
-        x = x_e32 = self.nl(self.conve3point(x))
-
-        x = F.max_pool2d(x, kernel_size=2)
-        x = self.ln3(x.permute(0, 2, 3, 1)).permute(0, 3, 1, 2)
-
-        x = self.line(x.reshape(b, -1))
-
-        # Middle layers of the unet
-        for mid in self.mids:
-            x = self.nl(mid(x))
-
-        x = self.lind(x).reshape(b, -1, *self.mr)
-
-        x = F.upsample_bilinear(x, scale_factor=2) # --
-        x = self.ln4(x.permute(0, 2, 3, 1)).permute(0, 3, 1, 2)
-
-        x = self.coordconv(x, self.coords2, step)    # point
-        x = self.nl(self.convd3point(x))
-
-        x = x * self.betas[0] + x_e32 * self.alphas[0] # residual
-
-        x = self.coordconv(x, self.coords2, step)
-        x = self.nl(self.convd32(x))
-
-        x = self.coordconv(x, self.coords2, step)
-        x = self.nl(self.convd31(x))
-
-        x = F.upsample_bilinear(x, scale_factor=2) # --
-        x = self.ln5(x.permute(0, 2, 3, 1)).permute(0, 3, 1, 2)
-
-        x = self.coordconv(x, self.coords1, step)    # point
-        x = self.nl(self.convd2point(x))
-
-        x = x * self.betas[1] + x_e22 * self.alphas[1] # res
-
-        x = self.coordconv(x, self.coords1, step)
-        x = self.nl(self.convd22(x))
-
-        x = self.coordconv(x, self.coords1, step)
-        x = self.nl(self.convd21(x))
-
-        x = F.upsample_bilinear(x, scale_factor=2) # --
-
-        x = self.coordconv(x, self.coords0, step)    # point
-        x = self.nl(self.convd1point(x))
-
-        x = self.ln6(x.permute(0, 2, 3, 1)).permute(0, 3, 1, 2)
-
-        x = x * self.betas[2] + x_e11 * self.alphas[2]
-
-        x = self.coordconv(x, self.coords0, step)
-        return self.convd11(x)
-
+#
+# class UNetOld(nn.Module):
+#     """
+#     A fairly arbitrary UNet.
+#     """
+#
+#     def __init__(self, a=16, b=32, c=128, ls=2, krnl=3, res=(64, 64), mlm_offset=0.0, ln_params=True, num_mids=3,
+#                  numouts=6):
+#         super().__init__()
+#
+#         self.latent_size = ls
+#         self.mlm_offset = mlm_offset
+#
+#         self.res = res
+#         self.mr = mr = res[0] // 2**3, res[1] // 2**3
+#
+#         pm = 'zeros'
+#         # non-linearity
+#         self.nl = F.relu
+#         # self.nl = lambda x : torch.sigmoid(x * 1e3) # torch.sign, F.relu
+#         # -- A sigmoid nonlinearity with a temperature parameter offers a nice way to tune between high and low frequency
+#         #    structures
+#
+#         pad = krnl//2
+#         krnl = (krnl, krnl)
+#
+#         self.coords0 = coords(res[0],      res[1])
+#         self.coords1 = coords(res[0] // 2, res[1] // 2)
+#         self.coords2 = coords(res[0] // 4, res[1] // 4)
+#         self.coords3 = coords(res[0] // 8, res[1] // 8)
+#
+#         self.conve11 = nn.Conv2d(3+3, a, krnl, padding=pad, padding_mode=pm)
+#         self.conve1point = nn.Conv2d(a+3, a, (1, 1), padding=0)
+#
+#         self.ln1 = nn.LayerNorm(a, elementwise_affine=ln_params)
+#
+#         self.conve21 = nn.Conv2d(a+3, b, krnl, padding=pad, padding_mode=pm)
+#         self.conve22 = nn.Conv2d(b+3, b, krnl, padding=pad, padding_mode=pm)
+#         self.conve2point = nn.Conv2d(b+3, b, (1, 1), padding=0)
+#
+#         self.ln2 = nn.LayerNorm(b, elementwise_affine=ln_params)
+#
+#         self.conve31 = nn.Conv2d(b+3, c, krnl, padding=pad, padding_mode=pm)
+#         self.conve32 = nn.Conv2d(c+3, c, krnl, padding=pad, padding_mode=pm)
+#         self.conve3point = nn.Conv2d(c+3, c, (1, 1), padding=0)
+#
+#         self.ln3 = nn.LayerNorm(c, elementwise_affine=ln_params)
+#
+#         self.line = nn.Linear(c * mr[0] * mr[1], ls)
+#
+#         mids = [nn.Linear(ls, ls) for _ in range(num_mids)]
+#         self.mids = nn.ModuleList(mids)
+#
+#         self.lind = nn.Linear(ls, c * mr[0] * mr[1])
+#
+#         self.convd3point = nn.Conv2d(c+3, c, (1, 1), padding=0)
+#
+#         self.ln4 = nn.LayerNorm(c, elementwise_affine=ln_params)
+#
+#         self.convd32 = nn.ConvTranspose2d(c+3, c, krnl, padding=pad)
+#         self.convd31 = nn.ConvTranspose2d(c+3, b, krnl, padding=pad)
+#
+#         self.convd2point = nn.Conv2d(b+3, b, (1, 1), padding=0)
+#
+#         self.ln5 = nn.LayerNorm(b, elementwise_affine=ln_params)
+#
+#         self.convd22 =nn.ConvTranspose2d(b+3, b, krnl, padding=pad)
+#         self.convd21 =nn.ConvTranspose2d(b+3, a, krnl, padding=pad)
+#
+#         self.convd1point = nn.Conv2d(a+3, a, (1, 1), padding=0)
+#
+#         self.ln6 = nn.LayerNorm(a, elementwise_affine=ln_params)
+#
+#         self.convd11 = nn.ConvTranspose2d(a+3, numouts, krnl, padding=pad)
+#         # -- We have six output channels. 3 for the means, 3 for the variances.
+#
+#         self.alphas = torch.tensor([1., 1., 1.])
+#         self.betas  = torch.tensor([1., 1., 1.])
+#
+#         # -- We have four output channels. The fourth is a probability distribution that tells us how the input and
+#         #    and output are mixed in the sample.
+#
+#     def coordconv(self, img, coords, step):
+#
+#         b, c, h, w = img.size()
+#         assert coords.size() == (1, 2, h, w)
+#
+#         step = torch.full(fill_value=step, size=(b, 1, h, w), device=d())
+#
+#         return torch.cat([img, coords.expand(b, 2, h, w), step], dim=1)
+#
+#     def forward(self, img, step):
+#
+#         b, c, h, w = img.size()
+#
+#         # forward pass
+#         x = img
+#
+#         x = self.coordconv(x, self.coords0, step)
+#         x = self.nl(self.conve11(x))
+#
+#         x = self.coordconv(x, self.coords0, step)
+#         x = x_e11 = F.relu(self.conve1point(x))
+#
+#         x = F.max_pool2d(x, kernel_size=2)
+#         x = self.ln1(x.permute(0, 2, 3, 1)).permute(0, 3, 1, 2)
+#
+#         x = self.coordconv(x, self.coords1, step)
+#         x = self.nl(self.conve21(x))
+#
+#         x = self.coordconv(x, self.coords1, step)
+#         x = self.nl(self.conve22(x))
+#
+#         x = self.coordconv(x, self.coords1, step)
+#         x = x_e22 = self.nl(self.conve2point(x))
+#
+#         x = F.max_pool2d(x, kernel_size=2)
+#         x = self.nl(x.permute(0, 2, 3, 1)).permute(0, 3, 1, 2)
+#
+#         x = self.coordconv(x, self.coords2, step)
+#         x = self.nl(self.conve31(x))
+#
+#         x = self.coordconv(x, self.coords2, step)
+#         x = self.nl(self.conve32(x))
+#
+#         x = self.coordconv(x, self.coords2, step)
+#         x = x_e32 = self.nl(self.conve3point(x))
+#
+#         x = F.max_pool2d(x, kernel_size=2)
+#         x = self.ln3(x.permute(0, 2, 3, 1)).permute(0, 3, 1, 2)
+#
+#         x = self.line(x.reshape(b, -1))
+#
+#         # Middle layers of the unet
+#         for mid in self.mids:
+#             x = self.nl(mid(x))
+#
+#         x = self.lind(x).reshape(b, -1, *self.mr)
+#
+#         x = F.upsample_bilinear(x, scale_factor=2) # --
+#         x = self.ln4(x.permute(0, 2, 3, 1)).permute(0, 3, 1, 2)
+#
+#         x = self.coordconv(x, self.coords2, step)    # point
+#         x = self.nl(self.convd3point(x))
+#
+#         x = x * self.betas[0] + x_e32 * self.alphas[0] # residual
+#
+#         x = self.coordconv(x, self.coords2, step)
+#         x = self.nl(self.convd32(x))
+#
+#         x = self.coordconv(x, self.coords2, step)
+#         x = self.nl(self.convd31(x))
+#
+#         x = F.upsample_bilinear(x, scale_factor=2) # --
+#         x = self.ln5(x.permute(0, 2, 3, 1)).permute(0, 3, 1, 2)
+#
+#         x = self.coordconv(x, self.coords1, step)    # point
+#         x = self.nl(self.convd2point(x))
+#
+#         x = x * self.betas[1] + x_e22 * self.alphas[1] # res
+#
+#         x = self.coordconv(x, self.coords1, step)
+#         x = self.nl(self.convd22(x))
+#
+#         x = self.coordconv(x, self.coords1, step)
+#         x = self.nl(self.convd21(x))
+#
+#         x = F.upsample_bilinear(x, scale_factor=2) # --
+#
+#         x = self.coordconv(x, self.coords0, step)    # point
+#         x = self.nl(self.convd1point(x))
+#
+#         x = self.ln6(x.permute(0, 2, 3, 1)).permute(0, 3, 1, 2)
+#
+#         x = x * self.betas[2] + x_e11 * self.alphas[2]
+#
+#         x = self.coordconv(x, self.coords0, step)
+#         return self.convd11(x)
+#

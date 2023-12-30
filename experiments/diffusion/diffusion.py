@@ -4,6 +4,7 @@ import random
 import torch
 from torch import nn
 import torch.nn.functional as F
+import torch.distributions as dst
 
 import torchvision
 import torchvision.transforms as transforms
@@ -14,7 +15,7 @@ mpl.use('Agg')
 import matplotlib.pyplot as plt
 
 import clearbox as cb
-from clearbox.tools import here, d, fc, gradient_norm, tic, toc
+from clearbox.tools import here, d, fc, gradient_norm, tic, toc, prod
 from math import ceil
 
 from pathlib import Path
@@ -518,16 +519,27 @@ def add_noise_var(batch, t, indices, noise=None):
 
     return batch
 
-def gaussian_constant(
+def gaussian(
         epochs=5,
-        steps=60,
-        k=32,
+        steps=120,
         lr=3e-4,
         bs=16,
         limit=float('inf'), # limits the number of batches per epoch,
-        imsize=(32, 32),
-        beta=0.9
-    ):
+        data_name='mnist',
+        data_dir='./data',
+        size=(32, 32),
+        beta=0.9,
+        gamma_sched=lambda t : 0.9,   # schedule for gamma (diffusion parameter)
+        tau_sched=lambda t, s: 0.1 * (t/s), # schedule for tau   (model variance)
+        num_workers=2,
+        grayscale=False,
+        dp=False,
+        unet_channels=(16, 32, 64),  # Basic structure of the UNet in channels per block
+        blocks_per_level=3,
+        res_cat=True,
+        sample_bs=16,
+        plot_every=5,
+):
 
     """
     Gaussian diffusion with constant parameters. That every noising step has
@@ -536,79 +548,86 @@ def gaussian_constant(
 
     with fixed constants $\beta$ and $\sigma$. To ensure that the process converges to a standard normal distribution
     we set $0 < \beta <1$ and $\sigma = 1 - \beta^2$.
-
-    :param epochs:
-    :param steps:
-    :param k:
-    :param lr:
-    :param bs:
-    :param limit:
-    :param imsize:
-    :return:
     """
 
-    h,w = imsize
+    h, w = size
 
-    sigma = 1 - beta ** 2
+    scaler = torch.cuda.amp.GradScaler()
 
-    # Load MNIST and scale up to 32x32, with color channels
-    transform = transforms.Compose(
-        [torchvision.transforms.Grayscale(num_output_channels=3),
-         transforms.Resize((h, w)),
-         transforms.ToTensor()])
+    tic()
+    dataloader, (h, w), n = data(data_name, data_dir, batch_size=bs, nw=num_workers, grayscale=grayscale, size=size)
+    print(f'data loaded ({toc():.4} s)')
 
-    data = torchvision.datasets.MNIST(root='./data', train=True, download=True, transform=transform)
-    dataloader = torch.utils.data.DataLoader(data, batch_size=bs, shuffle=True, num_workers=2)
+    gammas     = torch.tensor([gamma_sched(t) for t in range(steps)]).to(d())
+    gammas_bar = torch.tensor([prod(gammas[:t]) for t in range(steps)]).to(d())
+    sigmas_bar = torch.tensor([1 - gammas_bar[t]**2 for t in range(steps)]).to(d())
 
-    unet = cb.diffusion.UNet(res=(h, w), numouts=3)
+    unet = cb.diffusion.UNet(res=(h, w), channels=unet_channels, num_blocks=blocks_per_level, mid_layers=3,
+                             res_cat=res_cat, max_time=h*w)
+
+    if torch.cuda.is_available():
+        unet = unet.cuda()
+
+    if dp:
+        unet = torch.nn.DataParallel(unet)
+    print('Model created.')
 
     opt = torch.optim.Adam(lr=lr, params=unet.parameters())
 
-    Path(here(__file__,'samples_gc/')).mkdir(parents=True, exist_ok=True)
+    Path('./samples_gaussian/').mkdir(parents=True, exist_ok=True)
 
     for e in range(epochs):
+        # Train
+        unet.train()
         for i, (batch, _) in (bar := tqdm.tqdm(enumerate(dataloader))):
             if i > limit:
                 break
 
-            for s in range(steps):
+            b, c, h, w = batch.size()
 
-                old_batch = batch.clone()
+            t = torch.randint(low=1, high=steps, size=(b,), device=d())
+            noise = torch.randn(size=(b, c, h, w))
 
-                if i == 0 and (s+1) % 10 == 0:
-                    grid = make_grid(batch, nrow=4).permute(1, 2, 0)
-                    plt.imshow(grid)
-                    plt.savefig(here(__file__, f'samples_gc/noising-{s:05}.png'))
+            zt = gammas_bar[t, None, None, None] * batch + sigmas_bar[t, None, None, None].sqrt() * noise
+            assert zt.size() == (b, c, h, w)
 
-                with torch.no_grad():
-                    # Sample some stand-normally distriobuted noise
-                    noise = torch.randn(size=(bs, 3, h, w), device=d())
-                    # add noise to the current batch
-                    batch = batch * beta + noise * math.sqrt(sigma)
+            # The model predicts the noise vector
+            output = unet(zt, time=t).sigmoid()
+            loss = ((output - noise) ** 2.0).mean() # Simple loss
 
-                # Train the model to denoise
-                output = unet(batch, step=s/steps).sigmoid()
+            loss.backward()
+            opt.step()
+            opt.zero_grad()
 
-                loss = ((output - old_batch) ** 2.0).mean()
+            bar.set_postfix({'loss' : loss.item()})
 
-                loss.backward()
-                opt.step()
-                opt.zero_grad()
-
-                bar.set_postfix({'loss' : loss.item()})
-
+        # Sample
+        unet.eval()
         with torch.no_grad():
-            # Sample from the model
-            batch = torch.rand(size=(bs, 1, h, w)).round().expand(bs, 3, h, w)
-            # -- This is the distribution to which our noising process above converges
-            for s in (bar := tqdm.trange(steps)):
 
-                batch = unet(batch, step=(steps-s)/steps).sigmoid()
+            batch = torch.randn(size=(sample_bs, c, h, w), device=d())
 
-                if (s+1) % 10 == 0:
-                    grid = make_grid(batch.clip(0, 1), nrow=4).permute(1, 2, 0)
+            for t in trange(steps-1, 0, -1):
+                pred = unet(batch, t).sigmoid()
+                gt, gbt = gammas[t].item(), gammas_bar[t].item()
+
+                mutilde = (1/gt) * (batch - ((1-gt**2) / math.sqrt(1-gbt)) * pred )
+                # std = tau_sched(t)
+                std = sigmas_bar[t]
+
+                assert std > 10e-16
+                batch = dst.Normal(mutilde, std).sample()
+
+                if (t + 1) % plot_every == 0:
+                    grid = make_grid(batch.cpu().clip(0, 1), nrow=4).permute(1, 2, 0)
                     plt.imshow(grid)
-                    plt.savefig(here(__file__,f'samples_gc/denoising-{e}-{s:05}.png'))
+                    plt.gca().axis('off')
+                    plt.savefig(f'./samples_gaussian/denoised-{e}-{t:05}.png')
+
+                    grid = make_grid(mutilde.cpu().clip(0, 1), nrow=4).permute(1, 2, 0)
+                    plt.imshow(grid)
+                    plt.gca().axis('off')
+                    plt.savefig(f'./samples_gaussian/mean-{e}-{t:05}.png')
 
 
 if __name__ == '__main__':
