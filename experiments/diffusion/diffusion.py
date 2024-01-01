@@ -519,6 +519,124 @@ def add_noise_var(batch, t, indices, noise=None):
 
     return batch
 
+def gaussian1(
+        epochs=5,
+        steps=120,
+        lr=3e-4,
+        bs=16,
+        limit=float('inf'), # limits the number of batches per epoch,
+        data_name='mnist',
+        data_dir='./data',
+        size=(32, 32),
+        beta=0.9,
+        gamma_sched=lambda t : 0.99,   # schedule for gamma (diffusion parameter)
+        tau_sched='sigma', # schedule for tau   (model variance)
+        num_workers=2,
+        grayscale=False,
+        dp=False,
+        unet_channels=(16, 32, 64),  # Basic structure of the UNet in channels per block
+        blocks_per_level=3,
+        res_cat=True,
+        sample_bs=16,
+        plot_every=5,
+        simple_loss=False,
+):
+
+    """
+    Simple high-variance version of the Gaussian algorithm.
+    """
+
+    h, w = size
+
+    scaler = torch.cuda.amp.GradScaler()
+
+    tic()
+    dataloader, (h, w), n = data(data_name, data_dir, batch_size=bs, nw=num_workers, grayscale=grayscale, size=size)
+    print(f'data loaded ({toc():.4} s)')
+
+    gammas     = torch.tensor([gamma_sched(t) for t in range(steps)]).to(d())
+    gammas_bar = torch.tensor([prod(gammas[:t]) for t in range(steps)]).to(d())
+    sigmas_bar = torch.tensor([1 - gammas_bar[t]**2 for t in range(steps)]).to(d())
+
+    if tau_sched == 'sigma':
+        taus = sigmas_bar
+    else:
+        taus = torch.tensor([tau_sched(t) for t in range(steps)]).to(d())
+
+    print('gammas', gammas[-10:].tolist())
+    print('gammas bar', gammas_bar[-10:].tolist())
+    print('sigmas bar', sigmas_bar[-10:].tolist())
+
+    unet = cb.diffusion.UNet(res=(h, w), channels=unet_channels, num_blocks=blocks_per_level, mid_layers=3,
+                             res_cat=res_cat, max_time=h*w)
+
+    if torch.cuda.is_available():
+        unet = unet.cuda()
+
+    if dp:
+        unet = torch.nn.DataParallel(unet)
+    print('Model created.')
+
+    opt = torch.optim.Adam(lr=lr, params=unet.parameters())
+
+    Path('./samples_gaussian1/').mkdir(parents=True, exist_ok=True)
+
+    for e in range(epochs):
+        # Train
+        unet.train()
+        for i, (batch, _) in (bar := tqdm.tqdm(enumerate(dataloader))):
+            if i > limit:
+                break
+
+            if torch.cuda.is_available():
+                batch = batch.cuda()
+
+            b, c, h, w = batch.size()
+
+            t = torch.randint(low=1, high=steps, size=(b,), device=d())
+            noise_t = torch.randn(size=(b, c, h, w), device=d())
+            noise_tm1 = torch.randn(size=(b, c, h, w), device=d())
+
+            ztm1 = gammas_bar[t-1, None, None, None] * batch + sigmas_bar[t-1, None, None, None].sqrt() * noise_tm1
+            g = gammas[t, None, None, None]
+            zt   = g * ztm1   + (1 - g ** 2).sqrt() * noise_t
+
+            assert zt.size() == (b, c, h, w)
+
+            # The model predicts the previous z
+            output = unet(zt, time=t).sigmoid()
+
+            m = torch.ones_like(output) if simple_loss else (1.0 / (2.0 * taus[t]))[:, None, None, None]
+            loss = (m * (output - ztm1) ** 2.0).mean()
+
+            loss.backward()
+            opt.step()
+            opt.zero_grad()
+
+            bar.set_postfix({'loss' : loss.item()})
+
+        # Sample
+        unet.eval()
+        with torch.no_grad():
+
+            batch = torch.randn(size=(sample_bs, c, h, w), device=d())
+
+            for t in trange(steps-1, 0, -1):
+
+                pred = unet(batch, t).sigmoid()
+                batch = dst.Normal(pred, taus[t]).sample()
+
+                if (t + 1) % plot_every == 0:
+                    grid = make_grid(batch.cpu().clip(0, 1), nrow=4).permute(1, 2, 0)
+                    plt.imshow(grid)
+                    plt.gca().axis('off')
+                    plt.savefig(f'./samples_gaussian1/denoised-{e}-{t:05}.png')
+
+                    grid = make_grid(pred.cpu().clip(0, 1), nrow=4).permute(1, 2, 0)
+                    plt.imshow(grid)
+                    plt.gca().axis('off')
+                    plt.savefig(f'./samples_gaussian1/mean-{e}-{t:05}.png')
+
 def gaussian(
         epochs=5,
         steps=120,
